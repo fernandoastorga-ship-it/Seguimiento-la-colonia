@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: ecobus-mvp-api
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TZ
+        value: America/Santiago
+      - key: TIME_WINDOW_IDA_START
+        value: 05:30
+      - key: TIME_WINDOW_IDA_END
+        value: 06:10
+      - key: TIME_WINDOW_VUELTA_START
+        value: 18:00
+      - key: TIME_WINDOW_VUELTA_END
+        value: 19:30
+      - key: DUPLICATE_MINUTES
+        value: '3'
+      - key: BUS_CAPACITY
+        value: '45'
+      - key: MONTHLY_RESERVED
+        value: '35'
+      - key: DAILY_RESERVED
+        value: '10'
+      - key: SCANNER_PIN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ecobus-mvp-db
+          property: connectionString
+
+  - type: web
+    name: ecobus-mvp-admin
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run admin/admin_app.py --server.address 0.0.0.0 --server.port $PORT
+    envVars:
+      - key: TZ
+        value: America/Santiago
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ecobus-mvp-db
+          property: connectionString
+      - key: PUBLIC_BASE_URL
+        sync: false
+
+
+databases:
+  - name: ecobus-mvp-db
+    plan: starter

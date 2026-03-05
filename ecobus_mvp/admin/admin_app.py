@@ -1,0 +1,256 @@
+import os
+from datetime import date
+
+import pandas as pd
+import streamlit as st
+from sqlalchemy import select, func, and_, desc
+
+from app.config import settings
+from app.db import get_db, ENGINE
+from app.models import Base, Passenger, Subscription, DailyPass, Checkin, PickupPoint, TripType, PlanType, PaymentStatus, ReservationStatus
+
+Base.metadata.create_all(bind=ENGINE)
+
+st.set_page_config(page_title="Ecobus Admin", layout="wide")
+
+st.title("Ecobus / Ecovan - Admin MVP")
+st.caption("Panel operativo mínimo (MVP).")
+
+
+def download_df(df: pd.DataFrame, fname: str):
+    st.download_button(
+        label=f"Descargar {fname}",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name=fname,
+        mime="text/csv",
+    )
+
+
+tabs = st.tabs(["Dashboard día", "Pasajeros", "Planes mensuales", "Pase diario"])
+
+with tabs[0]:
+    st.subheader("Dashboard día")
+    d = st.date_input("Fecha de servicio", value=date.today())
+    with get_db() as db:
+        rows = db.execute(
+            select(Checkin, Passenger)
+            .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
+            .where(Checkin.service_date == d)
+            .order_by(desc(Checkin.created_at))
+        ).all()
+
+    data = []
+    for c, p in rows:
+        data.append({
+            "hora": c.created_at.strftime("%H:%M:%S"),
+            "fecha": c.service_date.isoformat(),
+            "trip_type": c.trip_type.value,
+            "pickup_point": c.pickup_point.value,
+            "resultado": c.result.value,
+            "razon": c.reason,
+            "codigo": p.code if p else None,
+            "nombre": p.full_name if p else None,
+        })
+    df = pd.DataFrame(data)
+
+    if df.empty:
+        st.info("Sin check-ins para la fecha seleccionada.")
+    else:
+        col1, col2, col3 = st.columns(3)
+        ok = (df["resultado"] == "OK").sum()
+        rej = (df["resultado"] == "REJECTED").sum()
+        col1.metric("OK", int(ok))
+        col2.metric("RECHAZADOS", int(rej))
+        col3.metric("TOTAL", int(len(df)))
+
+        st.dataframe(df, use_container_width=True)
+        download_df(df, f"checkins_{d.isoformat()}.csv")
+
+        st.markdown("#### Rechazados por razón")
+        st.dataframe(df[df["resultado"]=="REJECTED"]["razon"].value_counts().reset_index().rename(columns={"index":"razon","razon":"conteo"}), use_container_width=True)
+
+with tabs[1]:
+    st.subheader("Pasajeros")
+
+    colA, colB = st.columns([2,1])
+    with colA:
+        q = st.text_input("Buscar por nombre / teléfono / código")
+    with colB:
+        show_inactive = st.checkbox("Incluir inactivos", value=True)
+
+    with get_db() as db:
+        stmt = select(Passenger)
+        if q:
+            like = f"%{q.strip()}%"
+            stmt = stmt.where((Passenger.full_name.ilike(like)) | (Passenger.phone.ilike(like)) | (Passenger.code.ilike(like)))
+        if not show_inactive:
+            stmt = stmt.where(Passenger.is_active == True)
+        rows = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
+
+    st.write(f"Resultados: {len(rows)}")
+
+    if rows:
+        dfp = pd.DataFrame([{
+            "id": str(p.id),
+            "code": p.code,
+            "full_name": p.full_name,
+            "phone": p.phone,
+            "email": p.email,
+            "pickup_default": p.pickup_point_default.value,
+            "active": p.is_active,
+        } for p in rows])
+        st.dataframe(dfp, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### Crear pasajero")
+
+    with st.form("create_passenger"):
+        full_name = st.text_input("Nombre completo")
+        phone = st.text_input("Teléfono")
+        email = st.text_input("Email (opcional)")
+        pickup = st.selectbox("Punto de subida default", [pp.value for pp in PickupPoint])
+        is_active = st.checkbox("Activo", value=True)
+        submitted = st.form_submit_button("Crear")
+
+    if submitted:
+        if not full_name.strip() or not phone.strip():
+            st.error("Nombre y teléfono son obligatorios")
+        else:
+            with get_db() as db:
+                from app.utils import next_passenger_code
+                from app.main import _create_or_rotate_token
+                code = next_passenger_code(db)
+                p = Passenger(
+                    code=code,
+                    full_name=full_name.strip(),
+                    phone=phone.strip(),
+                    email=email.strip() or None,
+                    pickup_point_default=PickupPoint(pickup),
+                    is_active=is_active,
+                )
+                db.add(p)
+                db.flush()
+                _create_or_rotate_token(db, p.id)
+                st.success(f"Pasajero creado: {p.code}")
+                st.info("Para reenviar QR: usa /api/passengers/{id}/qr/regen (descarga PNG).")
+
+with tabs[2]:
+    st.subheader("Planes mensuales")
+    month = st.date_input("Mes (usar 1er día del mes)", value=date(date.today().year, date.today().month, 1))
+
+    with get_db() as db:
+        subs = db.execute(
+            select(Subscription, Passenger)
+            .join(Passenger, Passenger.id == Subscription.passenger_id)
+            .where(Subscription.month == month)
+            .order_by(Passenger.code)
+        ).all()
+
+    if subs:
+        dfs = pd.DataFrame([{
+            "passenger_code": p.code,
+            "full_name": p.full_name,
+            "plan_type": s.plan_type.value,
+            "payment_status": s.payment_status.value,
+            "rides_included": s.rides_included,
+            "rides_used_ida": s.rides_used_ida,
+            "rides_used_vuelta": s.rides_used_vuelta,
+        } for s, p in subs])
+        st.dataframe(dfs, use_container_width=True)
+        download_df(dfs, f"subs_{month.isoformat()}.csv")
+    else:
+        st.info("Sin planes para este mes.")
+
+    st.markdown("---")
+    st.markdown("### Activar plan (manual por pago)")
+    with st.form("activate_sub"):
+        passenger_code = st.text_input("Código pasajero (ej: ECO0001)")
+        plan_type = st.selectbox("Tipo de plan", [pt.value for pt in PlanType])
+        pay_status = st.selectbox("Estado de pago", [ps.value for ps in PaymentStatus], index=0)
+        notes = st.text_area("Notas (opcional)")
+        ok = st.form_submit_button("Activar")
+
+    if ok:
+        from app.main import _create_or_rotate_token
+        from app.utils import now_local
+        rides_included = 40 if plan_type == "IDA_VUELTA" else 20
+        with get_db() as db:
+            p = db.execute(select(Passenger).where(Passenger.code == passenger_code.strip())).scalar_one_or_none()
+            if not p:
+                st.error("No existe pasajero")
+            else:
+                sub = db.execute(select(Subscription).where(and_(Subscription.passenger_id==p.id, Subscription.month==month))).scalar_one_or_none()
+                if not sub:
+                    sub = Subscription(
+                        passenger_id=p.id,
+                        month=month,
+                        plan_type=PlanType(plan_type),
+                        payment_status=PaymentStatus(pay_status),
+                        rides_included=rides_included,
+                        rides_used_ida=0,
+                        rides_used_vuelta=0,
+                        activated_at=now_local().replace(tzinfo=None),
+                        notes=notes or None,
+                    )
+                else:
+                    sub.plan_type=PlanType(plan_type)
+                    sub.payment_status=PaymentStatus(pay_status)
+                    sub.rides_included=rides_included
+                    sub.activated_at=now_local().replace(tzinfo=None)
+                    sub.notes=notes or None
+                db.add(sub)
+                _create_or_rotate_token(db, p.id)
+                st.success("Plan activado y QR rotado.")
+
+with tabs[3]:
+    st.subheader("Pase diario")
+    d = st.date_input("Fecha", value=date.today(), key="dp_date")
+    trip = st.selectbox("Tipo de viaje", [t.value for t in TripType])
+
+    with get_db() as db:
+        rows = db.execute(
+            select(DailyPass, Passenger)
+            .join(Passenger, Passenger.id == DailyPass.passenger_id)
+            .where(and_(DailyPass.service_date==d, DailyPass.trip_type==TripType(trip)))
+            .order_by(Passenger.code)
+        ).all()
+
+    if rows:
+        dfd = pd.DataFrame([{
+            "id": dp.id,
+            "passenger_code": p.code,
+            "full_name": p.full_name,
+            "payment_status": dp.payment_status.value,
+            "reservation_status": dp.reservation_status.value,
+        } for dp, p in rows])
+        st.dataframe(dfd, use_container_width=True)
+        download_df(dfd, f"daily_pass_{d.isoformat()}_{trip}.csv")
+    else:
+        st.info("Sin pases para la selección.")
+
+    st.markdown("---")
+    st.markdown("### Crear solicitud")
+    with st.form("dp_create"):
+        passenger_code = st.text_input("Código pasajero", key="dp_code")
+        pay_status = st.selectbox("Estado de pago", [ps.value for ps in PaymentStatus], key="dp_pay")
+        res_status = st.selectbox("Estado reserva", [rs.value for rs in ReservationStatus], key="dp_res")
+        ok = st.form_submit_button("Crear")
+
+    if ok:
+        with get_db() as db:
+            p = db.execute(select(Passenger).where(Passenger.code == passenger_code.strip())).scalar_one_or_none()
+            if not p:
+                st.error("No existe pasajero")
+            else:
+                dp = DailyPass(
+                    passenger_id=p.id,
+                    service_date=d,
+                    trip_type=TripType(trip),
+                    payment_status=PaymentStatus(pay_status),
+                    reservation_status=ReservationStatus(res_status),
+                )
+                db.add(dp)
+                st.success("Solicitud creada")
+
+st.markdown("---")
+st.caption("Config: Render + Postgres recomendado. TZ y ventanas horarias desde variables de entorno.")

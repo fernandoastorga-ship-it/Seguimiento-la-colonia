@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ecobus Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.10/html5-qrcode.min.js"></script>
+  <style>
+    :root{--ok:#0a7a2f;--bad:#b00020;}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0; padding:16px; background:#0b0f14; color:#fff;}
+    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
+    select, button{font-size:18px; padding:10px 12px; border-radius:12px; border:1px solid #2a3642; background:#101824; color:#fff;}
+    button{cursor:pointer;}
+    #reader{width:100%; max-width:560px; margin-top:12px; border-radius:16px; overflow:hidden;}
+    .card{background:#101824; border:1px solid #2a3642; border-radius:16px; padding:14px;}
+    .status{margin-top:12px; padding:16px; border-radius:16px; font-size:20px; font-weight:700; display:none;}
+    .status.ok{background:rgba(10,122,47,.25); border:1px solid rgba(10,122,47,.8);}
+    .status.bad{background:rgba(176,0,32,.25); border:1px solid rgba(176,0,32,.8);}
+    .muted{opacity:.8; font-size:14px;}
+    .big{font-size:22px; margin-top:6px;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="row">
+      <label>
+        <div class="muted">Tipo de viaje</div>
+        <select id="tripType">
+          <option value="IDA" selected>IDA</option>
+          <option value="VUELTA">VUELTA</option>
+        </select>
+      </label>
+      <label>
+        <div class="muted">Punto de subida</div>
+        <select id="pickupPoint" required>
+          <option value="" selected disabled>Selecciona…</option>
+          <option value="LA_COLONIA">La Colonia</option>
+          <option value="CRUCE_MALLOCO">Cruce Malloco</option>
+        </select>
+      </label>
+      <button id="startBtn">Iniciar cámara</button>
+      <button id="stopBtn" disabled>Detener</button>
+    </div>
+    <div id="reader"></div>
+    <div id="status" class="status"></div>
+    <div class="muted" style="margin-top:10px;">Tip: el QR del pasajero suele ser una URL tipo <b>/q/TOKEN</b>. El sistema extrae el token automáticamente.</div>
+  </div>
+
+<script>
+  const elStatus = document.getElementById('status');
+  const tripType = document.getElementById('tripType');
+  const pickupPoint = document.getElementById('pickupPoint');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+
+  let scanner = null;
+  let busy = false;
+
+  function showResult(ok, title, subtitle){
+    elStatus.style.display = 'block';
+    elStatus.className = 'status ' + (ok ? 'ok' : 'bad');
+    elStatus.innerHTML = `<div>${title}</div><div class='big'>${subtitle || ''}</div>`;
+    setTimeout(()=>{ elStatus.style.display='none'; }, 2500);
+  }
+
+  function extractToken(text){
+    try{
+      // If it's a URL, take last path segment
+      const u = new URL(text);
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length >= 2 && parts[0] === 'q') return parts[1];
+      return parts[parts.length-1];
+    }catch(e){
+      // Raw token
+      return text.trim();
+    }
+  }
+
+  async function validateScanned(raw){
+    if (busy) return;
+    if (!pickupPoint.value){
+      showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
+      return;
+    }
+    busy = true;
+    const token = extractToken(raw);
+    const params = new URLSearchParams({ token, trip_type: tripType.value, pickup_point: pickupPoint.value });
+    try{
+      const res = await fetch(`/api/validate?${params.toString()}`);
+      const data = await res.json();
+      if (data.result === 'OK'){
+        showResult(true, 'OK', `${data.full_name} (${data.code})`);
+      } else {
+        const reason = data.reason ? ` - ${data.reason}` : '';
+        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
+      }
+    } catch (e){
+      showResult(false, 'ERROR', 'No se pudo validar');
+    } finally {
+      busy = false;
+    }
+  }
+
+  startBtn.addEventListener('click', async ()=>{
+    if (!pickupPoint.value){
+      showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
+      return;
+    }
+    if (scanner) return;
+    scanner = new Html5Qrcode('reader');
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    const config = { fps: 10, qrbox: { width: 260, height: 260 } };
+    try{
+      await scanner.start(
+        { facingMode: 'environment' },
+        config,
+        (decodedText)=> validateScanned(decodedText),
+        ()=>{}
+      );
+    } catch (e){
+      showResult(false, 'ERROR', 'No se pudo iniciar cámara');
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      scanner = null;
+    }
+  });
+
+  stopBtn.addEventListener('click', async ()=>{
+    if (!scanner) return;
+    try{ await scanner.stop(); }catch(e){}
+    try{ await scanner.clear(); }catch(e){}
+    scanner = null;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  });
+</script>
+</body>
+</html>
