@@ -125,32 +125,34 @@ if passenger_rows:
         is_active = st.checkbox("Activo", value=True)
         submitted = st.form_submit_button("Crear")
 
-    if submitted:
-        if not full_name.strip() or not phone.strip():
-            st.error("Nombre y teléfono son obligatorios")
-        else:
-            with get_db() as db:
-                from app.utils import next_passenger_code
-                from app.main import _create_or_rotate_token
-                code = next_passenger_code(db)
-p = Passenger(
-    code=code,
-    full_name=full_name.strip(),
-    phone=phone.strip(),
-    email=email.strip() or None,
-    pickup_point_default=PickupPoint(pickup),
-    is_active=is_active,
-)
-db.add(p)
-db.flush()
+if submitted:
+    if not full_name.strip() or not phone.strip():
+        st.error("Nombre y teléfono son obligatorios")
+    else:
+        with get_db() as db:
+            from app.utils import next_passenger_code
+            from app.main import _create_or_rotate_token
 
-passenger_id = str(p.id)
-passenger_code = p.code
+            code = next_passenger_code(db)
 
-_create_or_rotate_token(db, p.id)
+            p = Passenger(
+                code=code,
+                full_name=full_name.strip(),
+                phone=phone.strip(),
+                email=email.strip() or None,
+                pickup_point_default=PickupPoint(pickup),
+                is_active=is_active,
+            )
+            db.add(p)
+            db.flush()
 
-st.success(f"Pasajero creado: {passenger_code}")
-st.info(f"Para reenviar QR: usa /api/passengers/{passenger_id}/qr/regen (descarga PNG).")
+            passenger_id = str(p.id)
+            passenger_code = p.code
+
+            _create_or_rotate_token(db, p.id)
+
+        st.success(f"Pasajero creado: {passenger_code}")
+        st.info(f"Para reenviar QR: usa /api/passengers/{passenger_id}/qr/regen (descarga PNG).")
 
 with tabs[2]:
     st.subheader("Planes mensuales")
