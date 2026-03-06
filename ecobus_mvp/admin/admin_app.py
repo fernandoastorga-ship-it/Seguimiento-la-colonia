@@ -78,28 +78,41 @@ with tabs[1]:
     with colB:
         show_inactive = st.checkbox("Incluir inactivos", value=True)
 
-    with get_db() as db:
-        stmt = select(Passenger)
-        if q:
-            like = f"%{q.strip()}%"
-            stmt = stmt.where((Passenger.full_name.ilike(like)) | (Passenger.phone.ilike(like)) | (Passenger.code.ilike(like)))
-        if not show_inactive:
-            stmt = stmt.where(Passenger.is_active == True)
-        rows = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
+with get_db() as db:
+    stmt = select(Passenger)
 
-    st.write(f"Resultados: {len(rows)}")
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            (Passenger.full_name.ilike(like)) |
+            (Passenger.phone.ilike(like)) |
+            (Passenger.code.ilike(like))
+        )
 
-    if rows:
-        dfp = pd.DataFrame([{
+    if not show_inactive:
+        stmt = stmt.where(Passenger.is_active == True)
+
+    passengers = db.execute(
+        stmt.order_by(desc(Passenger.created_at)).limit(200)
+    ).scalars().all()
+
+    passenger_rows = []
+    for p in passengers:
+        passenger_rows.append({
             "id": str(p.id),
             "code": p.code,
             "full_name": p.full_name,
             "phone": p.phone,
             "email": p.email,
-            "pickup_default": p.pickup_point_default.value,
+            "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
             "active": p.is_active,
-        } for p in rows])
-        st.dataframe(dfp, use_container_width=True)
+        })
+
+st.write(f"Resultados: {len(passenger_rows)}")
+
+if passenger_rows:
+    dfp = pd.DataFrame(passenger_rows)
+    st.dataframe(dfp, use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Crear pasajero")
@@ -120,19 +133,24 @@ with tabs[1]:
                 from app.utils import next_passenger_code
                 from app.main import _create_or_rotate_token
                 code = next_passenger_code(db)
-                p = Passenger(
-                    code=code,
-                    full_name=full_name.strip(),
-                    phone=phone.strip(),
-                    email=email.strip() or None,
-                    pickup_point_default=PickupPoint(pickup),
-                    is_active=is_active,
-                )
-                db.add(p)
-                db.flush()
-                _create_or_rotate_token(db, p.id)
-                st.success(f"Pasajero creado: {p.code}")
-                st.info("Para reenviar QR: usa /api/passengers/{id}/qr/regen (descarga PNG).")
+p = Passenger(
+    code=code,
+    full_name=full_name.strip(),
+    phone=phone.strip(),
+    email=email.strip() or None,
+    pickup_point_default=PickupPoint(pickup),
+    is_active=is_active,
+)
+db.add(p)
+db.flush()
+
+passenger_id = str(p.id)
+passenger_code = p.code
+
+_create_or_rotate_token(db, p.id)
+
+st.success(f"Pasajero creado: {passenger_code}")
+st.info(f"Para reenviar QR: usa /api/passengers/{passenger_id}/qr/regen (descarga PNG).")
 
 with tabs[2]:
     st.subheader("Planes mensuales")
