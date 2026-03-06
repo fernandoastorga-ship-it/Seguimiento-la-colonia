@@ -31,27 +31,28 @@ tabs = st.tabs(["Dashboard día", "Pasajeros", "Planes mensuales", "Pase diario"
 with tabs[0]:
     st.subheader("Dashboard día")
     d = st.date_input("Fecha de servicio", value=date.today())
-    with get_db() as db:
-        rows = db.execute(
-            select(Checkin, Passenger)
-            .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
-            .where(Checkin.service_date == d)
-            .order_by(desc(Checkin.created_at))
-        ).all()
+with get_db() as db:
+    rows = db.execute(
+        select(Checkin, Passenger)
+        .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
+        .where(Checkin.service_date == d)
+        .order_by(desc(Checkin.created_at))
+    ).all()
 
     data = []
     for c, p in rows:
         data.append({
-            "hora": c.created_at.strftime("%H:%M:%S"),
-            "fecha": c.service_date.isoformat(),
-            "trip_type": c.trip_type.value,
-            "pickup_point": c.pickup_point.value,
-            "resultado": c.result.value,
+            "hora": c.created_at.strftime("%H:%M:%S") if c.created_at else None,
+            "fecha": c.service_date.isoformat() if c.service_date else None,
+            "trip_type": c.trip_type.value if c.trip_type else None,
+            "pickup_point": c.pickup_point.value if c.pickup_point else None,
+            "resultado": c.result.value if c.result else None,
             "razon": c.reason,
             "codigo": p.code if p else None,
             "nombre": p.full_name if p else None,
         })
-    df = pd.DataFrame(data)
+
+df = pd.DataFrame(data)
 
     if df.empty:
         st.info("Sin check-ins para la fecha seleccionada.")
