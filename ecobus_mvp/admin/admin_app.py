@@ -158,16 +158,17 @@ with tabs[2]:
     st.subheader("Planes mensuales")
     month = st.date_input("Mes (usar 1er día del mes)", value=date(date.today().year, date.today().month, 1))
 
-    with get_db() as db:
-        subs = db.execute(
-            select(Subscription, Passenger)
-            .join(Passenger, Passenger.id == Subscription.passenger_id)
-            .where(Subscription.month == month)
-            .order_by(Passenger.code)
-        ).all()
+with get_db() as db:
+    subs = db.execute(
+        select(Subscription, Passenger)
+        .join(Passenger, Passenger.id == Subscription.passenger_id)
+        .where(Subscription.month == month)
+        .order_by(Passenger.code)
+    ).all()
 
-    if subs:
-        dfs = pd.DataFrame([{
+    subs_rows = []
+    for s, p in subs:
+        subs_rows.append({
             "passenger_code": p.code,
             "full_name": p.full_name,
             "plan_type": s.plan_type.value,
@@ -175,11 +176,14 @@ with tabs[2]:
             "rides_included": s.rides_included,
             "rides_used_ida": s.rides_used_ida,
             "rides_used_vuelta": s.rides_used_vuelta,
-        } for s, p in subs])
-        st.dataframe(dfs, use_container_width=True)
-        download_df(dfs, f"subs_{month.isoformat()}.csv")
-    else:
-        st.info("Sin planes para este mes.")
+        })
+
+if subs_rows:
+    dfs = pd.DataFrame(subs_rows)
+    st.dataframe(dfs, use_container_width=True)
+    download_df(dfs, f"subs_{month.isoformat()}.csv")
+else:
+    st.info("Sin planes para este mes.")
 
     st.markdown("---")
     st.markdown("### Activar plan (manual por pago)")
@@ -227,26 +231,30 @@ with tabs[3]:
     d = st.date_input("Fecha", value=date.today(), key="dp_date")
     trip = st.selectbox("Tipo de viaje", [t.value for t in TripType])
 
-    with get_db() as db:
-        rows = db.execute(
-            select(DailyPass, Passenger)
-            .join(Passenger, Passenger.id == DailyPass.passenger_id)
-            .where(and_(DailyPass.service_date==d, DailyPass.trip_type==TripType(trip)))
-            .order_by(Passenger.code)
-        ).all()
+with get_db() as db:
+    rows = db.execute(
+        select(DailyPass, Passenger)
+        .join(Passenger, Passenger.id == DailyPass.passenger_id)
+        .where(and_(DailyPass.service_date==d, DailyPass.trip_type==TripType(trip)))
+        .order_by(Passenger.code)
+    ).all()
 
-    if rows:
-        dfd = pd.DataFrame([{
+    daily_rows = []
+    for dp, p in rows:
+        daily_rows.append({
             "id": dp.id,
             "passenger_code": p.code,
             "full_name": p.full_name,
             "payment_status": dp.payment_status.value,
             "reservation_status": dp.reservation_status.value,
-        } for dp, p in rows])
-        st.dataframe(dfd, use_container_width=True)
-        download_df(dfd, f"daily_pass_{d.isoformat()}_{trip}.csv")
-    else:
-        st.info("Sin pases para la selección.")
+        })
+
+if daily_rows:
+    dfd = pd.DataFrame(daily_rows)
+    st.dataframe(dfd, use_container_width=True)
+    download_df(dfd, f"daily_pass_{d.isoformat()}_{trip}.csv")
+else:
+    st.info("Sin pases para la selección.")
 
     st.markdown("---")
     st.markdown("### Crear solicitud")
