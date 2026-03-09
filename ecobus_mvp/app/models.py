@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from sqlalchemy import Text, UniqueConstraint, Index
-
 from datetime import datetime, date
 from enum import Enum as PyEnum
 
@@ -14,7 +12,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Enum as SAEnum,
+    Text,
+    UniqueConstraint,
+    Index,
 )
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -42,12 +44,12 @@ class TripType(str, PyEnum):
 
 
 class PlanType(str, PyEnum):
-    # (mantén antiguos si existían para compatibilidad)
+    # Compatibilidad (si existían)
     IDA = "IDA"
     VUELTA = "VUELTA"
     IDA_VUELTA = "IDA_VUELTA"
 
-    # nuevos packs por cantidad de viajes
+    # Packs por cantidad de viajes
     VIAJES_10 = "VIAJES_10"
     VIAJES_20 = "VIAJES_20"
     VIAJES_30 = "VIAJES_30"
@@ -103,9 +105,13 @@ class Subscription(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
-    month: Mapped[date] = mapped_column(Date)  # first day of month
+    month: Mapped[date] = mapped_column(Date)
+
     plan_type: Mapped[PlanType] = mapped_column(SAEnum(PlanType, name="plan_type_enum"))
-    payment_status: Mapped[PaymentStatus] = mapped_column(SAEnum(PaymentStatus, name="payment_status_enum"), default=PaymentStatus.PENDIENTE)
+    payment_status: Mapped[PaymentStatus] = mapped_column(
+        SAEnum(PaymentStatus, name="payment_status_enum"),
+        default=PaymentStatus.PENDIENTE,
+    )
 
     rides_included: Mapped[int] = mapped_column(Integer, default=20)
     rides_used_ida: Mapped[int] = mapped_column(Integer, default=0)
@@ -126,8 +132,12 @@ class DailyPass(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
     service_date: Mapped[date] = mapped_column(Date, index=True)
-    trip_type: Mapped[TripType] = mapped_column(Enum(TripType))
-    payment_status: Mapped[PaymentStatus] = mapped_column(SAEnum(PaymentStatus, name="payment_status_enum"), default=PaymentStatus.PENDIENTE)
+
+    trip_type: Mapped[TripType] = mapped_column(SAEnum(TripType, name="trip_type_enum"))
+    payment_status: Mapped[PaymentStatus] = mapped_column(
+        SAEnum(PaymentStatus, name="payment_status_enum"),
+        default=PaymentStatus.PENDIENTE,
+    )
     reservation_status: Mapped[ReservationStatus] = mapped_column(
         SAEnum(ReservationStatus, name="reservation_status_enum"),
         default=ReservationStatus.LISTA_ESPERA,
@@ -147,9 +157,14 @@ class Checkin(Base):
     trip_type: Mapped[TripType] = mapped_column(SAEnum(TripType, name="trip_type_enum"), index=True)
     pickup_point: Mapped[PickupPoint] = mapped_column(SAEnum(PickupPoint, name="pickup_point_enum"))
 
-    passenger_id: Mapped[uuid.UUID | None] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), nullable=True, index=True)
+    passenger_id: Mapped[uuid.UUID | None] = mapped_column(
+        _uuid_col(),
+        ForeignKey("passengers.id"),
+        nullable=True,
+        index=True,
+    )
 
-    result: Mapped[CheckinResult] = mapped_column(Enum(CheckinResult))
+    result: Mapped[CheckinResult] = mapped_column(SAEnum(CheckinResult, name="checkin_result_enum"))
     reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     scanner_user: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -165,8 +180,12 @@ class QrToken(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
+
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    status: Mapped[TokenStatus] = mapped_column(SAEnum(TokenStatus, name="token_status_enum"), default=TokenStatus.ACTIVE)
+    status: Mapped[TokenStatus] = mapped_column(
+        SAEnum(TokenStatus, name="token_status_enum"),
+        default=TokenStatus.ACTIVE,
+    )
     valid_from: Mapped[datetime] = mapped_column(DateTime, index=True)
     valid_to: Mapped[datetime] = mapped_column(DateTime, index=True)
 
