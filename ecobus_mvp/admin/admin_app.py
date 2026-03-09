@@ -4,6 +4,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 from sqlalchemy import select, func, and_, desc
+from sqlalchemy import text
 
 from app.config import settings
 from app.db import get_db, ENGINE
@@ -12,6 +13,30 @@ from app.models import Base, Passenger, Subscription, DailyPass, Checkin, Pickup
 Base.metadata.create_all(bind=ENGINE)
 
 st.set_page_config(page_title="Ecobus Admin", layout="wide")
+def _ensure_plan_enum_values():
+    """
+    Render no siempre permite conexión externa al Postgres (puerto 5432).
+    Esto asegura que el enum existente 'plantype' tenga los nuevos valores.
+    Se ejecuta al iniciar la API. Seguro porque usa IF NOT EXISTS.
+    """
+    stmts = [
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_10';",
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_20';",
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_30';",
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_40';",
+    ]
+
+    try:
+        # ALTER TYPE requiere AUTOCOMMIT en Postgres
+        with ENGINE.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            for s in stmts:
+                conn.execute(text(s))
+    except Exception as e:
+        # No queremos botar la app por esto; solo loguear.
+        print("WARN: no se pudo asegurar enum plantype:", repr(e))
+
+
+_ensure_plan_enum_values()
 
 st.title("Ecobus / Ecovan - Admin MVP")
 st.caption("Panel operativo mínimo (MVP).")
