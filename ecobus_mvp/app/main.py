@@ -42,6 +42,29 @@ app = FastAPI(title="Ecobus MVP Control Pasajeros", version="0.1.0")
 
 # Create tables automatically (MVP friendly). In production, switch to Alembic migrations.
 Base.metadata.create_all(bind=ENGINE)
+def _ensure_plan_enum_values():
+    """
+    Asegura que el enum existente 'plantype' tenga los nuevos valores.
+    Se ejecuta al iniciar la API.
+    """
+    stmts = [
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_10';",
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_20';",
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_30';",
+        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_40';",
+    ]
+
+    try:
+        # ALTER TYPE requiere AUTOCOMMIT en Postgres
+        with ENGINE.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            for s in stmts:
+                conn.execute(text(s))
+    except Exception as e:
+        # No botamos la app por esto; solo registramos advertencia.
+        print("WARN: no se pudo asegurar enum plantype:", repr(e))
+
+
+_ensure_plan_enum_values()
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
