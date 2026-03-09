@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import uuid
+from sqlalchemy import Text, UniqueConstraint, Index
+
 from datetime import datetime, date
 from enum import Enum as PyEnum
 
@@ -27,12 +30,13 @@ class Base(DeclarativeBase):
     pass
 
 
-class PickupPoint(str, enum.Enum):
+class PickupPoint(str, PyEnum):
     LA_COLONIA = "LA_COLONIA"
     CRUCE_MALLOCO = "CRUCE_MALLOCO"
+    LA_MONEDA = "LA_MONEDA"
 
 
-class TripType(str, enum.Enum):
+class TripType(str, PyEnum):
     IDA = "IDA"
     VUELTA = "VUELTA"
 
@@ -50,24 +54,24 @@ class PlanType(str, PyEnum):
     VIAJES_40 = "VIAJES_40"
 
 
-class PaymentStatus(str, enum.Enum):
+class PaymentStatus(str, PyEnum):
     PAGADO = "PAGADO"
     PENDIENTE = "PENDIENTE"
     VENCIDO = "VENCIDO"
 
 
-class ReservationStatus(str, enum.Enum):
+class ReservationStatus(str, PyEnum):
     CONFIRMADO = "CONFIRMADO"
     LISTA_ESPERA = "LISTA_ESPERA"
     CANCELADO = "CANCELADO"
 
 
-class CheckinResult(str, enum.Enum):
+class CheckinResult(str, PyEnum):
     OK = "OK"
     REJECTED = "REJECTED"
 
 
-class TokenStatus(str, enum.Enum):
+class TokenStatus(str, PyEnum):
     ACTIVE = "ACTIVE"
     REVOKED = "REVOKED"
 
@@ -82,7 +86,7 @@ class Passenger(Base):
     phone: Mapped[str] = mapped_column(String(50), index=True)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
-    pickup_point_default: Mapped[PickupPoint] = mapped_column(Enum(PickupPoint))
+    pickup_point_default: Mapped[PickupPoint] = mapped_column(SAEnum(PickupPoint, name="pickup_point_enum"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -101,7 +105,7 @@ class Subscription(Base):
     passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
     month: Mapped[date] = mapped_column(Date)  # first day of month
     plan_type: Mapped[PlanType] = mapped_column(SAEnum(PlanType, name="plan_type_enum"))
-    payment_status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.PENDIENTE)
+    payment_status: Mapped[PaymentStatus] = mapped_column(SAEnum(PaymentStatus, name="payment_status_enum"), default=PaymentStatus.PENDIENTE)
 
     rides_included: Mapped[int] = mapped_column(Integer, default=20)
     rides_used_ida: Mapped[int] = mapped_column(Integer, default=0)
@@ -123,9 +127,9 @@ class DailyPass(Base):
     passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
     service_date: Mapped[date] = mapped_column(Date, index=True)
     trip_type: Mapped[TripType] = mapped_column(Enum(TripType))
-    payment_status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.PENDIENTE)
+    payment_status: Mapped[PaymentStatus] = mapped_column(SAEnum(PaymentStatus, name="payment_status_enum"), default=PaymentStatus.PENDIENTE)
     reservation_status: Mapped[ReservationStatus] = mapped_column(
-        Enum(ReservationStatus),
+        SAEnum(ReservationStatus, name="reservation_status_enum"),
         default=ReservationStatus.LISTA_ESPERA,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -140,8 +144,8 @@ class Checkin(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     service_date: Mapped[date] = mapped_column(Date, index=True)
-    trip_type: Mapped[TripType] = mapped_column(Enum(TripType), index=True)
-    pickup_point: Mapped[PickupPoint] = mapped_column(Enum(PickupPoint))
+    trip_type: Mapped[TripType] = mapped_column(SAEnum(TripType, name="trip_type_enum"), index=True)
+    pickup_point: Mapped[PickupPoint] = mapped_column(SAEnum(PickupPoint, name="pickup_point_enum"))
 
     passenger_id: Mapped[uuid.UUID | None] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), nullable=True, index=True)
 
@@ -162,7 +166,7 @@ class QrToken(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    status: Mapped[TokenStatus] = mapped_column(Enum(TokenStatus), default=TokenStatus.ACTIVE)
+    status: Mapped[TokenStatus] = mapped_column(SAEnum(TokenStatus, name="token_status_enum"), default=TokenStatus.ACTIVE)
     valid_from: Mapped[datetime] = mapped_column(DateTime, index=True)
     valid_to: Mapped[datetime] = mapped_column(DateTime, index=True)
 
