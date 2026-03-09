@@ -42,10 +42,14 @@ class TripType(str, enum.Enum):
     VUELTA = "VUELTA"
 
 
-class PlanType(str, enum.Enum):
+class PlanType(str, Enum):
     IDA = "IDA"
     VUELTA = "VUELTA"
     IDA_VUELTA = "IDA_VUELTA"
+    VIAJES_10 = "VIAJES_10"
+    VIAJES_20 = "VIAJES_20"
+    VIAJES_30 = "VIAJES_30"
+    VIAJES_40 = "VIAJES_40"
 
 
 class PaymentStatus(str, enum.Enum):
