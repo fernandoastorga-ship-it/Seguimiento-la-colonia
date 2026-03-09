@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-import enum
-import uuid
 from datetime import datetime, date
+from enum import Enum as PyEnum
 
 from sqlalchemy import (
+    String,
+    Integer,
     Boolean,
     Date,
     DateTime,
-    Enum,
     ForeignKey,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-    Index,
+    Enum as SAEnum,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -42,10 +37,13 @@ class TripType(str, enum.Enum):
     VUELTA = "VUELTA"
 
 
-class PlanType(str, Enum):
+class PlanType(str, PyEnum):
+    # (mantén antiguos si existían para compatibilidad)
     IDA = "IDA"
     VUELTA = "VUELTA"
     IDA_VUELTA = "IDA_VUELTA"
+
+    # nuevos packs por cantidad de viajes
     VIAJES_10 = "VIAJES_10"
     VIAJES_20 = "VIAJES_20"
     VIAJES_30 = "VIAJES_30"
@@ -102,7 +100,7 @@ class Subscription(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
     month: Mapped[date] = mapped_column(Date)  # first day of month
-    plan_type: Mapped[PlanType] = mapped_column(Enum(PlanType))
+    plan_type: Mapped[PlanType] = mapped_column(SAEnum(PlanType, name="plan_type_enum"))
     payment_status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.PENDIENTE)
 
     rides_included: Mapped[int] = mapped_column(Integer, default=20)
