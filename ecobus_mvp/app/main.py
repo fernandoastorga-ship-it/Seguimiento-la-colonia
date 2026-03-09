@@ -241,30 +241,36 @@ def _create_or_rotate_token(db, passenger_id) -> str:
 @app.post("/api/subscriptions/activate")
 def activate_subscription(payload: ActivateSubscriptionIn):
     with get_db() as db:
-        p = db.execute(select(Passenger).where(Passenger.code == payload.passenger_code)).scalar_one_or_none()
+        p = db.execute(
+            select(Passenger).where(Passenger.code == payload.passenger_code)
+        ).scalar_one_or_none()
         if not p:
             raise HTTPException(404, "Passenger not found")
 
-PLAN_RIDES = {
-    PlanType.VIAJES_10: 10,
-    PlanType.VIAJES_20: 20,
-    PlanType.VIAJES_30: 30,
-    PlanType.VIAJES_40: 40,
-}
+        PLAN_RIDES = {
+            PlanType.VIAJES_10: 10,
+            PlanType.VIAJES_20: 20,
+            PlanType.VIAJES_30: 30,
+            PlanType.VIAJES_40: 40,
+        }
 
-rides_included = PLAN_RIDES.get(payload.plan_type)
+        rides_included = PLAN_RIDES.get(payload.plan_type)
 
-# (compatibilidad opcional si aún existen planes antiguos)
-if rides_included is None:
-    if payload.plan_type == PlanType.IDA_VUELTA:
-        rides_included = 40
-    elif payload.plan_type in (PlanType.IDA, PlanType.VUELTA):
-        rides_included = 20
-    else:
-        raise HTTPException(400, "PlanType inválido (usa VIAJES_10/20/30/40)")
+        # Compatibilidad con planes antiguos (opcional)
+        if rides_included is None:
+            if payload.plan_type == PlanType.IDA_VUELTA:
+                rides_included = 40
+            elif payload.plan_type in (PlanType.IDA, PlanType.VUELTA):
+                rides_included = 20
+            else:
+                raise HTTPException(400, "PlanType inválido (usa VIAJES_10/20/30/40)")
+
         sub = db.execute(
-            select(Subscription).where(and_(Subscription.passenger_id == p.id, Subscription.month == payload.month))
+            select(Subscription).where(
+                and_(Subscription.passenger_id == p.id, Subscription.month == payload.month)
+            )
         ).scalar_one_or_none()
+
         if not sub:
             sub = Subscription(
                 passenger_id=p.id,
@@ -283,11 +289,13 @@ if rides_included is None:
             sub.rides_included = rides_included
             sub.activated_at = now_local().replace(tzinfo=None)
             sub.notes = payload.notes
+
         db.add(sub)
 
-        # Recommended: rotate token when activating month
+        # Rotar token al activar plan
         _create_or_rotate_token(db, p.id)
-        return {"ok": True, "message": "Subscription activated and QR rotated."}
+
+        return {"ok": True, "message": "Suscripción activada y QR rotado."}
 
 
 # ---------- Daily passes ----------
@@ -483,7 +491,6 @@ def _log_checkin(db, passenger_id, service_date, trip_type, pickup_point, result
 
 
 def _plan_allows(plan_type: PlanType, trip_type: TripType) -> bool:
-    # Nuevos planes: por cantidad total de viajes, permiten ambos (IDA/VUELTA)
     if plan_type in (PlanType.VIAJES_10, PlanType.VIAJES_20, PlanType.VIAJES_30, PlanType.VIAJES_40):
         return True
 
