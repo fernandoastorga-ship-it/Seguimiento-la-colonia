@@ -245,7 +245,23 @@ def activate_subscription(payload: ActivateSubscriptionIn):
         if not p:
             raise HTTPException(404, "Passenger not found")
 
-        rides_included = 40 if payload.plan_type == PlanType.IDA_VUELTA else 20
+PLAN_RIDES = {
+    PlanType.VIAJES_10: 10,
+    PlanType.VIAJES_20: 20,
+    PlanType.VIAJES_30: 30,
+    PlanType.VIAJES_40: 40,
+}
+
+rides_included = PLAN_RIDES.get(payload.plan_type)
+
+# (compatibilidad opcional si aún existen planes antiguos)
+if rides_included is None:
+    if payload.plan_type == PlanType.IDA_VUELTA:
+        rides_included = 40
+    elif payload.plan_type in (PlanType.IDA, PlanType.VUELTA):
+        rides_included = 20
+    else:
+        raise HTTPException(400, "PlanType inválido (usa VIAJES_10/20/30/40)")
         sub = db.execute(
             select(Subscription).where(and_(Subscription.passenger_id == p.id, Subscription.month == payload.month))
         ).scalar_one_or_none()
@@ -467,6 +483,11 @@ def _log_checkin(db, passenger_id, service_date, trip_type, pickup_point, result
 
 
 def _plan_allows(plan_type: PlanType, trip_type: TripType) -> bool:
+    # Nuevos planes: por cantidad total de viajes, permiten ambos (IDA/VUELTA)
+    if plan_type in (PlanType.VIAJES_10, PlanType.VIAJES_20, PlanType.VIAJES_30, PlanType.VIAJES_40):
+        return True
+
+    # Compatibilidad con planes antiguos
     if plan_type == PlanType.IDA_VUELTA:
         return True
     if plan_type == PlanType.IDA and trip_type == TripType.IDA:
@@ -474,6 +495,7 @@ def _plan_allows(plan_type: PlanType, trip_type: TripType) -> bool:
     if plan_type == PlanType.VUELTA and trip_type == TripType.VUELTA:
         return True
     return False
+
 
 
 def _has_rides_left(sub: Subscription, trip_type: TripType) -> bool:
