@@ -277,16 +277,11 @@ def activate_subscription(payload: ActivateSubscriptionIn):
             PlanType.VIAJES_40: 40,
         }
 
-        rides_included = PLAN_RIDES.get(payload.plan_type)
+        # Solo planes nuevos (sin IDA/VUELTA/IDA_VUELTA)
+        if payload.plan_type not in PLAN_RIDES:
+            raise HTTPException(400, "PlanType inválido (usa VIAJES_10/20/30/40)")
 
-        # Compatibilidad con planes antiguos (opcional)
-        if rides_included is None:
-            if payload.plan_type == PlanType.IDA_VUELTA:
-                rides_included = 40
-            elif payload.plan_type in (PlanType.IDA, PlanType.VUELTA):
-                rides_included = 20
-            else:
-                raise HTTPException(400, "PlanType inválido (usa VIAJES_10/20/30/40)")
+        rides_included = PLAN_RIDES[payload.plan_type]
 
         sub = db.execute(
             select(Subscription).where(
