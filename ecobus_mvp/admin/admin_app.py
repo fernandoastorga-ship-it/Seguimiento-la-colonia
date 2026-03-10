@@ -80,47 +80,132 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Pasajeros")
 
-    colA, colB = st.columns([2,1])
+    colA, colB = st.columns([2, 1])
     with colA:
         q = st.text_input("Buscar por nombre / teléfono / código")
     with colB:
         show_inactive = st.checkbox("Incluir inactivos", value=True)
 
-with get_db() as db:
-    stmt = select(Passenger)
+    with get_db() as db:
+        stmt = select(Passenger)
 
-    if q:
-        like = f"%{q.strip()}%"
-        stmt = stmt.where(
-            (Passenger.full_name.ilike(like)) |
-            (Passenger.phone.ilike(like)) |
-            (Passenger.code.ilike(like))
+        if q:
+            like = f"%{q.strip()}%"
+            stmt = stmt.where(
+                (Passenger.full_name.ilike(like)) |
+                (Passenger.phone.ilike(like)) |
+                (Passenger.code.ilike(like))
+            )
+
+        if not show_inactive:
+            stmt = stmt.where(Passenger.is_active == True)
+
+        passengers = db.execute(
+            stmt.order_by(desc(Passenger.created_at)).limit(200)
+        ).scalars().all()
+
+        passenger_rows = []
+        for p in passengers:
+            passenger_rows.append({
+                "id": str(p.id),
+                "code": p.code,
+                "full_name": p.full_name,
+                "phone": p.phone,
+                "email": p.email,
+                "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
+                "active": p.is_active,
+            })
+
+    st.write(f"Resultados: {len(passenger_rows)}")
+
+    if passenger_rows:
+        dfp = pd.DataFrame(passenger_rows)
+        st.dataframe(dfp, use_container_width=True)
+
+        # ---- ACCIONES (nuevo) ----
+        st.markdown("---")
+        st.markdown("### Acciones sobre pasajero")
+
+        action_code = st.text_input("Código pasajero (ej: ECO0001)", key="action_code").strip().upper()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            btn_deactivate = st.button("Desactivar pasajero", use_container_width=True)
+        with col2:
+            btn_reactivate = st.button("Reactivar pasajero", use_container_width=True)
+            from app.config import settings
+from app.models import QrToken, TokenStatus
+from app.main import _make_qr_png, _create_or_rotate_token
+from app.utils import now_local
+
+col3, col4 = st.columns(2)
+with col3:
+    btn_qr_download = st.button("Descargar QR (vigente)", use_container_width=True)
+with col4:
+    btn_qr_regen = st.button("Regenerar y descargar QR", use_container_width=True)
+
+if btn_qr_download or btn_qr_regen:
+    if not action_code:
+        st.error("Ingresa un código de pasajero")
+    else:
+        with get_db() as db:
+            p = db.execute(select(Passenger).where(Passenger.code == action_code)).scalar_one_or_none()
+            if not p:
+                st.error("No existe pasajero con ese código")
+            else:
+                token = None
+
+                if btn_qr_regen:
+                    # crea/rota token nuevo del mes
+                    token = _create_or_rotate_token(db, p.id)
+                else:
+                    # busca token activo vigente
+                    t = db.execute(
+                        select(QrToken).where(
+                            and_(
+                                QrToken.passenger_id == p.id,
+                                QrToken.status == TokenStatus.ACTIVE,
+                            )
+                        )
+                        .order_by(QrToken.valid_to.desc())
+                    ).scalar_one_or_none()
+
+                    if t:
+                        # valid_to está guardado naive; lo comparamos naive
+                        now_naive = now_local().replace(tzinfo=None)
+                        if t.valid_from <= now_naive <= t.valid_to:
+                            token = t.token
+
+                    # si no hay token vigente, crea uno
+                    if not token:
+                        token = _create_or_rotate_token(db, p.id)
+
+                qr_url = f"{settings.public_base_url.rstrip('/')}/q/{token}"
+                png_bytes = _make_qr_png(qr_url)
+
+        st.download_button(
+            label="Descargar PNG QR",
+            data=png_bytes,
+            file_name=f"QR_{action_code}.png",
+            mime="image/png",
         )
 
-    if not show_inactive:
-        stmt = stmt.where(Passenger.is_active == True)
+        if btn_deactivate or btn_reactivate:
+            if not action_code:
+                st.error("Ingresa un código de pasajero")
+            else:
+                with get_db() as db:
+                    p = db.execute(select(Passenger).where(Passenger.code == action_code)).scalar_one_or_none()
+                    if not p:
+                        st.error("No existe pasajero con ese código")
+                    else:
+                        p.is_active = False if btn_deactivate else True
+                        db.add(p)
 
-    passengers = db.execute(
-        stmt.order_by(desc(Passenger.created_at)).limit(200)
-    ).scalars().all()
+                        from app.main import _create_or_rotate_token
+                        _create_or_rotate_token(db, p.id)
 
-    passenger_rows = []
-    for p in passengers:
-        passenger_rows.append({
-            "id": str(p.id),
-            "code": p.code,
-            "full_name": p.full_name,
-            "phone": p.phone,
-            "email": p.email,
-            "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
-            "active": p.is_active,
-        })
-
-st.write(f"Resultados: {len(passenger_rows)}")
-
-if passenger_rows:
-    dfp = pd.DataFrame(passenger_rows)
-    st.dataframe(dfp, use_container_width=True)
+                st.success("Acción aplicada correctamente.")
 
     st.markdown("---")
     st.markdown("### Crear pasajero")
@@ -133,34 +218,34 @@ if passenger_rows:
         is_active = st.checkbox("Activo", value=True)
         submitted = st.form_submit_button("Crear")
 
-if submitted:
-    if not full_name.strip() or not phone.strip():
-        st.error("Nombre y teléfono son obligatorios")
-    else:
-        with get_db() as db:
-            from app.utils import next_passenger_code
-            from app.main import _create_or_rotate_token
+    if submitted:
+        if not full_name.strip() or not phone.strip():
+            st.error("Nombre y teléfono son obligatorios")
+        else:
+            with get_db() as db:
+                from app.utils import next_passenger_code
+                from app.main import _create_or_rotate_token
 
-            code = next_passenger_code(db)
+                code = next_passenger_code(db)
 
-            p = Passenger(
-                code=code,
-                full_name=full_name.strip(),
-                phone=phone.strip(),
-                email=email.strip() or None,
-                pickup_point_default=PickupPoint(pickup),
-                is_active=is_active,
-            )
-            db.add(p)
-            db.flush()
+                p = Passenger(
+                    code=code,
+                    full_name=full_name.strip(),
+                    phone=phone.strip(),
+                    email=email.strip() or None,
+                    pickup_point_default=PickupPoint(pickup),
+                    is_active=is_active,
+                )
+                db.add(p)
+                db.flush()
 
-            passenger_id = str(p.id)
-            passenger_code = p.code
+                passenger_id = str(p.id)
+                passenger_code = p.code
 
-            _create_or_rotate_token(db, p.id)
+                _create_or_rotate_token(db, p.id)
 
-        st.success(f"Pasajero creado: {passenger_code}")
-        st.info(f"Para reenviar QR: usa /api/passengers/{passenger_id}/qr/regen (descarga PNG).")
+            st.success(f"Pasajero creado: {passenger_code}")
+            st.info(f"Para reenviar QR: usa /api/passengers/{passenger_id}/qr/regen (descarga PNG).")
 
 with tabs[2]:
     st.subheader("Planes mensuales")
