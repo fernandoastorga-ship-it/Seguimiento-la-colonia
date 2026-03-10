@@ -50,7 +50,27 @@ def _ensure_plan_enum_values() -> None:
 
 # Run at import time (API + Admin)
 _ensure_plan_enum_values()
+def _ensure_pickup_point_enum_values() -> None:
+    stmts = [
+        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'LA_COLONIA';",
+        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'CRUCE_MALLOCO';",
+        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'LA_MONEDA';",
 
+        # NUEVOS (ejemplos; reemplaza por tus reales)
+        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'PLAZA_PENAFOR';",
+        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'METRO_LO_VALLEDOR';",
+        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'METRO_LA_MONEDA';",
+    ]
+
+    try:
+        with ENGINE.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            for s in stmts:
+                conn.execute(text(s))
+    except Exception as e:
+        print("WARN: _ensure_pickup_point_enum_values failed:", repr(e))
+
+
+_ensure_pickup_point_enum_values()
 
 @contextmanager
 def get_db() -> Session:
