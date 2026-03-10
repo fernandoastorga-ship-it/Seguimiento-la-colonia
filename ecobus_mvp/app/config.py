@@ -18,9 +18,9 @@ class Settings:
     tz: str = _env("TZ", "America/Santiago")
 
     time_window_ida_start: time = _parse_hhmm(_env("TIME_WINDOW_IDA_START", "05:30"))
-    time_window_ida_end: time = _parse_hhmm(_env("TIME_WINDOW_IDA_END", "06:10"))
+    time_window_ida_end: time = _parse_hhmm(_env("TIME_WINDOW_IDA_END", "17:30"))
     time_window_vuelta_start: time = _parse_hhmm(_env("TIME_WINDOW_VUELTA_START", "18:00"))
-    time_window_vuelta_end: time = _parse_hhmm(_env("TIME_WINDOW_VUELTA_END", "19:30"))
+    time_window_vuelta_end: time = _parse_hhmm(_env("TIME_WINDOW_VUELTA_END", "21:30"))
 
     duplicate_minutes: int = int(_env("DUPLICATE_MINUTES", "3"))
     bus_capacity: int = int(_env("BUS_CAPACITY", "45"))
