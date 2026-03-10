@@ -478,6 +478,37 @@ return ValidateResponse(
             return ValidateResponse(result="REJECTED", full_name=p.full_name, code=p.code, reason="PASE_NO_CONFIRMADO",
                                    message="Pase diario no pagado o no confirmado.")
 
+        # daily pass path
+        dp = db.execute(
+            select(DailyPass).where(
+                and_(
+                    DailyPass.passenger_id == p.id,
+                    DailyPass.service_date == service_date,
+                    DailyPass.trip_type == trip_type,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not dp:
+            _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_DERECHO_A_VIAJE")
+            return ValidateResponse(
+                result="REJECTED",
+                full_name=p.full_name,
+                code=p.code,
+                reason="SIN_DERECHO_A_VIAJE",
+                message="Sin plan activo ni pase diario.",
+            )
+
+        if dp.payment_status != PaymentStatus.PAGADO or dp.reservation_status != ReservationStatus.CONFIRMADO:
+            _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PASE_NO_CONFIRMADO")
+            return ValidateResponse(
+                result="REJECTED",
+                full_name=p.full_name,
+                code=p.code,
+                reason="PASE_NO_CONFIRMADO",
+                message="Pase diario no pagado o no confirmado.",
+            )
+
         # cupo daily
         confirmed_count = db.execute(
             select(func.count()).select_from(DailyPass).where(
@@ -489,10 +520,16 @@ return ValidateResponse(
                 )
             )
         ).scalar_one()
+
         if confirmed_count > settings.daily_reserved:
             _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_CUPO")
-            return ValidateResponse(result="REJECTED", full_name=p.full_name, code=p.code, reason="SIN_CUPO",
-                                   message="Sin cupo disponible para pase diario.")
+            return ValidateResponse(
+                result="REJECTED",
+                full_name=p.full_name,
+                code=p.code,
+                reason="SIN_CUPO",
+                message="Sin cupo disponible para pase diario.",
+            )
 
         _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.OK, None)
         return ValidateResponse(
