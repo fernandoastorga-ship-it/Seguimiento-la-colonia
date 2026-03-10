@@ -249,54 +249,88 @@ if btn_qr_download or btn_qr_regen:
 
 with tabs[2]:
     st.subheader("Planes mensuales")
-    month = st.date_input("Mes (usar 1er día del mes)", value=date(date.today().year, date.today().month, 1))
+    month = st.date_input(
+        "Mes (usar 1er día del mes)",
+        value=date(date.today().year, date.today().month, 1),
+        key="subs_month",
+    )
 
-with get_db() as db:
-    subs = db.execute(
-        select(Subscription, Passenger)
-        .join(Passenger, Passenger.id == Subscription.passenger_id)
-        .where(Subscription.month == month)
-        .order_by(Passenger.code)
-    ).all()
+    with get_db() as db:
+        subs = db.execute(
+            select(Subscription, Passenger)
+            .join(Passenger, Passenger.id == Subscription.passenger_id)
+            .where(Subscription.month == month)
+            .order_by(Passenger.code)
+        ).all()
 
-    subs_rows = []
-    for s, p in subs:
-        subs_rows.append({
-            "passenger_code": p.code,
-            "full_name": p.full_name,
-            "plan_type": s.plan_type.value,
-            "payment_status": s.payment_status.value,
-            "rides_included": s.rides_included,
-            "rides_used_ida": s.rides_used_ida,
-            "rides_used_vuelta": s.rides_used_vuelta,
-        })
+        subs_rows = []
+        for s, p in subs:
+            used_total = (s.rides_used_ida or 0) + (s.rides_used_vuelta or 0)
+            remaining = max(0, (s.rides_included or 0) - used_total)
 
-if subs_rows:
-    dfs = pd.DataFrame(subs_rows)
-    st.dataframe(dfs, use_container_width=True)
-    download_df(dfs, f"subs_{month.isoformat()}.csv")
-else:
-    st.info("Sin planes para este mes.")
+            subs_rows.append({
+                "passenger_code": p.code,
+                "full_name": p.full_name,
+                "plan_type": s.plan_type.value if s.plan_type else None,
+                "payment_status": s.payment_status.value if s.payment_status else None,
+                "rides_included": s.rides_included,
+                "rides_used_ida": s.rides_used_ida,
+                "rides_used_vuelta": s.rides_used_vuelta,
+                "rides_used_total": used_total,
+                "rides_remaining": remaining,
+            })
+
+    if subs_rows:
+        dfs = pd.DataFrame(subs_rows)
+        st.dataframe(dfs, use_container_width=True)
+        download_df(dfs, f"subs_{month.isoformat()}.csv")
+    else:
+        st.info("Sin planes para este mes.")
 
     st.markdown("---")
-    st.markdown("### Activar plan (manual por pago)")
+    st.markdown("### Activar / Actualizar plan (manual por pago)")
+
     with st.form("activate_sub"):
-        passenger_code = st.text_input("Código pasajero (ej: ECO0001)")
-        plan_type = st.selectbox("Tipo de plan", [pt.value for pt in PlanType])
+        passenger_code = st.text_input("Código pasajero (ej: ECO0001)").strip().upper()
+
+        plan_type = st.selectbox(
+            "Tipo de plan",
+            [
+                PlanType.VIAJES_10.value,
+                PlanType.VIAJES_20.value,
+                PlanType.VIAJES_30.value,
+                PlanType.VIAJES_40.value,
+            ],
+        )
+
         pay_status = st.selectbox("Estado de pago", [ps.value for ps in PaymentStatus], index=0)
+        reset_usage = st.checkbox("Resetear uso del mes (dejar usados en 0)", value=False)
         notes = st.text_area("Notas (opcional)")
-        ok = st.form_submit_button("Activar")
+        ok = st.form_submit_button("Guardar")
 
     if ok:
+        PLAN_RIDES = {
+            "VIAJES_10": 10,
+            "VIAJES_20": 20,
+            "VIAJES_30": 30,
+            "VIAJES_40": 40,
+        }
+        rides_included = PLAN_RIDES[plan_type]
+
         from app.main import _create_or_rotate_token
         from app.utils import now_local
-        rides_included = 40 if plan_type == "IDA_VUELTA" else 20
+
         with get_db() as db:
-            p = db.execute(select(Passenger).where(Passenger.code == passenger_code.strip())).scalar_one_or_none()
+            p = db.execute(select(Passenger).where(Passenger.code == passenger_code)).scalar_one_or_none()
             if not p:
                 st.error("No existe pasajero")
             else:
-                sub = db.execute(select(Subscription).where(and_(Subscription.passenger_id==p.id, Subscription.month==month))).scalar_one_or_none()
+                sub = db.execute(
+                    select(Subscription).where(
+                        and_(Subscription.passenger_id == p.id, Subscription.month == month)
+                    )
+                ).scalar_one_or_none()
+
                 if not sub:
                     sub = Subscription(
                         passenger_id=p.id,
@@ -310,14 +344,22 @@ else:
                         notes=notes or None,
                     )
                 else:
-                    sub.plan_type=PlanType(plan_type)
-                    sub.payment_status=PaymentStatus(pay_status)
-                    sub.rides_included=rides_included
-                    sub.activated_at=now_local().replace(tzinfo=None)
-                    sub.notes=notes or None
+                    sub.plan_type = PlanType(plan_type)
+                    sub.payment_status = PaymentStatus(pay_status)
+                    sub.rides_included = rides_included
+                    sub.activated_at = now_local().replace(tzinfo=None)
+                    sub.notes = notes or None
+
+                    if reset_usage:
+                        sub.rides_used_ida = 0
+                        sub.rides_used_vuelta = 0
+
                 db.add(sub)
+
+                # QR mensual: solo se rota cuando tú guardas el plan (seguridad)
                 _create_or_rotate_token(db, p.id)
-                st.success("Plan activado y QR rotado.")
+
+                st.success("Plan guardado y QR rotado.")
 
 with tabs[3]:
     st.subheader("Pase diario")
