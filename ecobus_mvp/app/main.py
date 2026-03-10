@@ -354,7 +354,6 @@ def update_daily_pass(daily_pass_id: int, payload: DailyPassUpdate):
 
 
 # ---------- Validation ----------
-
 @app.get("/api/validate", response_model=ValidateResponse)
 def validate(
     token: str = Query(...),
@@ -381,21 +380,36 @@ def validate(
         p = db.get(Passenger, t.passenger_id)
         if not p or not p.is_active:
             _log_checkin(db, t.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_INACTIVO")
-            return ValidateResponse(result="REJECTED", full_name=p.full_name if p else None, code=p.code if p else None,
-                                   reason="PLAN_INACTIVO", message="Pasajero inactivo.")
+            return ValidateResponse(
+                result="REJECTED",
+                full_name=p.full_name if p else None,
+                code=p.code if p else None,
+                reason="PLAN_INACTIVO",
+                message="Pasajero inactivo.",
+            )
 
         # time window
         nt = now.timetz().replace(tzinfo=None)
         if trip_type == TripType.IDA:
             if not in_time_window(nt, settings.time_window_ida_start, settings.time_window_ida_end):
                 _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
-                return ValidateResponse(result="REJECTED", full_name=p.full_name, code=p.code, reason="FUERA_DE_HORARIO",
-                                       message="Escaneo fuera de horario permitido.")
+                return ValidateResponse(
+                    result="REJECTED",
+                    full_name=p.full_name,
+                    code=p.code,
+                    reason="FUERA_DE_HORARIO",
+                    message="Escaneo fuera de horario permitido.",
+                )
         else:
             if not in_time_window(nt, settings.time_window_vuelta_start, settings.time_window_vuelta_end):
                 _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
-                return ValidateResponse(result="REJECTED", full_name=p.full_name, code=p.code, reason="FUERA_DE_HORARIO",
-                                       message="Escaneo fuera de horario permitido.")
+                return ValidateResponse(
+                    result="REJECTED",
+                    full_name=p.full_name,
+                    code=p.code,
+                    reason="FUERA_DE_HORARIO",
+                    message="Escaneo fuera de horario permitido.",
+                )
 
         # anti-duplicate
         cutoff = now.replace(tzinfo=None)  # stored naive
@@ -414,10 +428,16 @@ def validate(
             .order_by(Checkin.created_at.desc())
             .limit(1)
         ).scalar_one_or_none()
+
         if dup:
             _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "DUPLICADO_RECIENTE")
-            return ValidateResponse(result="REJECTED", full_name=p.full_name, code=p.code, reason="DUPLICADO_RECIENTE",
-                                   message="Escaneo duplicado reciente.")
+            return ValidateResponse(
+                result="REJECTED",
+                full_name=p.full_name,
+                code=p.code,
+                reason="DUPLICADO_RECIENTE",
+                message="Escaneo duplicado reciente.",
+            )
 
         # eligibility: subscription (priority) then daily pass
         ms = month_start(service_date)
@@ -430,32 +450,43 @@ def validate(
         if sub and sub.payment_status == PaymentStatus.PAGADO:
             if not _plan_allows(sub.plan_type, trip_type):
                 _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_NO_PERMITE_VIAJE")
-                return ValidateResponse(result="REJECTED", full_name=p.full_name, code=p.code, reason="PLAN_NO_PERMITE_VIAJE",
-                                       message="Plan no permite este tipo de viaje.")
-            # rides included control
+                return ValidateResponse(
+                    result="REJECTED",
+                    full_name=p.full_name,
+                    code=p.code,
+                    reason="PLAN_NO_PERMITE_VIAJE",
+                    message="Plan no permite este tipo de viaje.",
+                )
+
             if not _has_rides_left(sub, trip_type):
                 _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "RIDES_AGOTADOS")
-                return ValidateResponse(result="REJECTED", full_name=p.full_name, code=p.code, reason="RIDES_AGOTADOS",
-                                       message="Viajes del plan agotados.")
+                return ValidateResponse(
+                    result="REJECTED",
+                    full_name=p.full_name,
+                    code=p.code,
+                    reason="RIDES_AGOTADOS",
+                    message="Viajes del plan agotados.",
+                )
 
             _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.OK, None)
             _consume_ride(sub, trip_type)
             db.add(sub)
-used_total = sub.rides_used_ida + sub.rides_used_vuelta
-remaining = max(0, sub.rides_included - used_total)
 
-return ValidateResponse(
-    result="OK",
-    full_name=p.full_name,
-    code=p.code,
-    plan=sub.plan_type.value,
-    month=sub.month,
-    pickup_point=pickup_point.value,
-    rides_included=sub.rides_included,
-    rides_used_total=used_total,
-    rides_remaining=remaining,
-    message="Pasajero activo. Check-in registrado.",
-)
+            used_total = sub.rides_used_ida + sub.rides_used_vuelta
+            remaining = max(0, sub.rides_included - used_total)
+
+            return ValidateResponse(
+                result="OK",
+                full_name=p.full_name,
+                code=p.code,
+                plan=sub.plan_type.value,
+                month=sub.month,
+                pickup_point=pickup_point.value,
+                rides_included=sub.rides_included,
+                rides_used_total=used_total,
+                rides_remaining=remaining,
+                message="Pasajero activo. Check-in registrado.",
+            )
 
         # daily pass path
         dp = db.execute(
