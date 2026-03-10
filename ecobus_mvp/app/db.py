@@ -72,20 +72,24 @@ def _migrate_old_subscription_plan_values() -> None:
       - IDA o VUELTA  -> VIAJES_20
       - IDA_VUELTA    -> VIAJES_40
       - Cualquier otro no VIAJES_* -> si rides_included calza 10/20/30/40 usa eso, si no -> VIAJES_20
+
+    IMPORTANTE: plan_type es ENUM (plantype), por eso casteamos a ::plantype.
     """
     stmts = [
         """
         UPDATE subscriptions
         SET plan_type =
-            CASE
-              WHEN plan_type::text IN ('IDA', 'VUELTA') THEN 'VIAJES_20'
-              WHEN plan_type::text = 'IDA_VUELTA' THEN 'VIAJES_40'
-              WHEN rides_included = 10 THEN 'VIAJES_10'
-              WHEN rides_included = 20 THEN 'VIAJES_20'
-              WHEN rides_included = 30 THEN 'VIAJES_30'
-              WHEN rides_included = 40 THEN 'VIAJES_40'
-              ELSE 'VIAJES_20'
-            END
+            (
+              CASE
+                WHEN plan_type::text IN ('IDA', 'VUELTA') THEN 'VIAJES_20'
+                WHEN plan_type::text = 'IDA_VUELTA' THEN 'VIAJES_40'
+                WHEN rides_included = 10 THEN 'VIAJES_10'
+                WHEN rides_included = 20 THEN 'VIAJES_20'
+                WHEN rides_included = 30 THEN 'VIAJES_30'
+                WHEN rides_included = 40 THEN 'VIAJES_40'
+                ELSE 'VIAJES_20'
+              END
+            )::plantype
         WHERE plan_type::text NOT LIKE 'VIAJES_%';
         """
     ]
