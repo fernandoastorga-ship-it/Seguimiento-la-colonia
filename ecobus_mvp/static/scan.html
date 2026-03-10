@@ -98,15 +98,17 @@
       const res = await fetch(`/api/validate?${params.toString()}`);
       const data = await res.json();
 
-    if (data.result === 'OK'){
-      const planTxt = data.plan ? ` - ${data.plan}` : '';
-      const msgTxt = data.message ? ` | ${data.message}` : '';
-      showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${msgTxt}`);
-    } else {
-      const reason = data.reason ? ` - ${data.reason}` : '';
-      const msgTxt = data.message ? ` | ${data.message}` : '';
-      showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}${msgTxt}`);
-    }
+if (data.result === 'OK'){
+  const planTxt = data.plan ? ` - ${data.plan}` : '';
+  const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null) ? ` | Restan: ${data.rides_remaining}` : '';
+  const msgTxt = data.message ? ` | ${data.message}` : '';
+  showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}${msgTxt}`);
+} else {
+  const reason = data.reason ? ` - ${data.reason}` : '';
+  const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null) ? ` | Restan: ${data.rides_remaining}` : '';
+  const msgTxt = data.message ? ` | ${data.message}` : '';
+  showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}${remTxt}${msgTxt}`);
+}
     } catch (e){
       showResult(false, 'ERROR', 'No se pudo validar');
     } finally {
