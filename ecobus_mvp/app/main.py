@@ -388,28 +388,30 @@ def validate(
                 message="Pasajero inactivo.",
             )
 
-        # time window
-        nt = now.timetz().replace(tzinfo=None)
-        if trip_type == TripType.IDA:
-            if not in_time_window(nt, settings.time_window_ida_start, settings.time_window_ida_end):
-                _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
-                return ValidateResponse(
-                    result="REJECTED",
-                    full_name=p.full_name,
-                    code=p.code,
-                    reason="FUERA_DE_HORARIO",
-                    message="Escaneo fuera de horario permitido.",
-                )
-        else:
-            if not in_time_window(nt, settings.time_window_vuelta_start, settings.time_window_vuelta_end):
-                _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
-                return ValidateResponse(
-                    result="REJECTED",
-                    full_name=p.full_name,
-                    code=p.code,
-                    reason="FUERA_DE_HORARIO",
-                    message="Escaneo fuera de horario permitido.",
-                )
+                # time window (can be disabled for testing)
+        if not settings.disable_time_window:
+            nt = now.timetz().replace(tzinfo=None)
+
+            if trip_type == TripType.IDA:
+                if not in_time_window(nt, settings.time_window_ida_start, settings.time_window_ida_end):
+                    _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
+                    return ValidateResponse(
+                        result="REJECTED",
+                        full_name=p.full_name,
+                        code=p.code,
+                        reason="FUERA_DE_HORARIO",
+                        message="Escaneo fuera de horario permitido.",
+                    )
+            else:
+                if not in_time_window(nt, settings.time_window_vuelta_start, settings.time_window_vuelta_end):
+                    _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
+                    return ValidateResponse(
+                        result="REJECTED",
+                        full_name=p.full_name,
+                        code=p.code,
+                        reason="FUERA_DE_HORARIO",
+                        message="Escaneo fuera de horario permitido.",
+                    )
 
         # anti-duplicate
         cutoff = now.replace(tzinfo=None)  # stored naive
