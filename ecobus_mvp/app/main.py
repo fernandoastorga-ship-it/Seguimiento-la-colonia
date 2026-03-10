@@ -441,15 +441,21 @@ def validate(
             _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.OK, None)
             _consume_ride(sub, trip_type)
             db.add(sub)
-            return ValidateResponse(
-                result="OK",
-                full_name=p.full_name,
-                code=p.code,
-                plan=sub.plan_type.value,
-                month=sub.month,
-                pickup_point=pickup_point.value,
-                message="Pasajero activo. Check-in registrado.",
-            )
+used_total = sub.rides_used_ida + sub.rides_used_vuelta
+remaining = max(0, sub.rides_included - used_total)
+
+return ValidateResponse(
+    result="OK",
+    full_name=p.full_name,
+    code=p.code,
+    plan=sub.plan_type.value,
+    month=sub.month,
+    pickup_point=pickup_point.value,
+    rides_included=sub.rides_included,
+    rides_used_total=used_total,
+    rides_remaining=remaining,
+    message="Pasajero activo. Check-in registrado.",
+)
 
         # daily pass path
         dp = db.execute(
