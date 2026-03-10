@@ -66,20 +66,20 @@ def _ensure_pickup_point_enum_values() -> None:
     _exec_autocommit(stmts, "_ensure_pickup_point_enum_values failed")
 
 
-# Run at import time (API + Admin)
-_ensure_plan_enum_values()
-_ensure_pickup_point_enum_values()
-
 def _migrate_old_subscription_plan_values() -> None:
     """
-    Convierte planes antiguos (IDA/VUELTA/IDA_VUELTA, etc.) a VIAJES_*.
-    Esto evita que SQLAlchemy falle al leer 'IDA' cuando el Enum ya solo tiene VIAJES_*.
+    Migra planes antiguos a VIAJES_* según tu regla:
+      - IDA o VUELTA  -> VIAJES_20
+      - IDA_VUELTA    -> VIAJES_40
+      - Cualquier otro no VIAJES_* -> si rides_included calza 10/20/30/40 usa eso, si no -> VIAJES_20
     """
     stmts = [
         """
         UPDATE subscriptions
         SET plan_type =
             CASE
+              WHEN plan_type::text IN ('IDA', 'VUELTA') THEN 'VIAJES_20'
+              WHEN plan_type::text = 'IDA_VUELTA' THEN 'VIAJES_40'
               WHEN rides_included = 10 THEN 'VIAJES_10'
               WHEN rides_included = 20 THEN 'VIAJES_20'
               WHEN rides_included = 30 THEN 'VIAJES_30'
@@ -92,7 +92,11 @@ def _migrate_old_subscription_plan_values() -> None:
     _exec_autocommit(stmts, "_migrate_old_subscription_plan_values failed")
 
 
+# Run at import time (API + Admin) - order matters
+_ensure_plan_enum_values()
+_ensure_pickup_point_enum_values()
 _migrate_old_subscription_plan_values()
+
 
 @contextmanager
 def get_db() -> Session:
