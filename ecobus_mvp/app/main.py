@@ -488,7 +488,6 @@ return ValidateResponse(
                 message="Pase diario no pagado o no confirmado.",
             )
 
-        # cupo daily
         confirmed_count = db.execute(
             select(func.count()).select_from(DailyPass).where(
                 and_(
