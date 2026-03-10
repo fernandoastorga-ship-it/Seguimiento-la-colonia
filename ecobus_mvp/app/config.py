@@ -17,6 +17,8 @@ def _parse_hhmm(v: str) -> time:
 class Settings:
     tz: str = _env("TZ", "America/Santiago")
 
+    disable_time_window: bool = _env("DISABLE_TIME_WINDOW", "false").lower() in ("1", "true", "yes", "y", "on")
+
     time_window_ida_start: time = _parse_hhmm(_env("TIME_WINDOW_IDA_START", "00:00"))
     time_window_ida_end: time = _parse_hhmm(_env("TIME_WINDOW_IDA_END", "23:59"))
     time_window_vuelta_start: time = _parse_hhmm(_env("TIME_WINDOW_VUELTA_START", "00:00"))
