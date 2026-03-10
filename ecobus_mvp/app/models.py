@@ -44,12 +44,6 @@ class TripType(str, PyEnum):
 
 
 class PlanType(str, PyEnum):
-    # Compatibilidad (si existían)
-    IDA = "IDA"
-    VUELTA = "VUELTA"
-    IDA_VUELTA = "IDA_VUELTA"
-
-    # Packs por cantidad de viajes
     VIAJES_10 = "VIAJES_10"
     VIAJES_20 = "VIAJES_20"
     VIAJES_30 = "VIAJES_30"
