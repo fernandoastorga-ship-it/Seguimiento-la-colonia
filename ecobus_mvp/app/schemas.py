@@ -62,3 +62,6 @@ class ValidateResponse(BaseModel):
     plan: str | None = None
     month: date | None = None
     pickup_point: str | None = None
+    rides_included: int | None = None
+    rides_used_total: int | None = None
+    rides_remaining: int | None = None
