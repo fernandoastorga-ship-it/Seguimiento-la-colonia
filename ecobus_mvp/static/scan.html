@@ -36,6 +36,7 @@
           <option value="" selected disabled>Selecciona…</option>
           <option value="LA_COLONIA">La Colonia</option>
           <option value="CRUCE_MALLOCO">Cruce Malloco</option>
+          <option value="LA_MONEDA">La Moneda</option>
         </select>
       </label>
       <button id="startBtn">Iniciar cámara</button>
@@ -97,12 +98,15 @@
       const res = await fetch(`/api/validate?${params.toString()}`);
       const data = await res.json();
 
-      if (data.result === 'OK'){
-        showResult(true, 'OK', `${data.full_name} (${data.code})`);
-      } else {
-        const reason = data.reason ? ` - ${data.reason}` : '';
-        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
-      }
+    if (data.result === 'OK'){
+      const planTxt = data.plan ? ` - ${data.plan}` : '';
+      const msgTxt = data.message ? ` | ${data.message}` : '';
+      showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${msgTxt}`);
+    } else {
+      const reason = data.reason ? ` - ${data.reason}` : '';
+      const msgTxt = data.message ? ` | ${data.message}` : '';
+      showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}${msgTxt}`);
+    }
     } catch (e){
       showResult(false, 'ERROR', 'No se pudo validar');
     } finally {
