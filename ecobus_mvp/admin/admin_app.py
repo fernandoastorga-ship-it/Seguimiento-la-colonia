@@ -58,13 +58,13 @@ with tabs[0]:
     st.subheader("Dashboard día")
     d = st.date_input("Fecha de servicio", value=date.today(), key="dash_date")
 
-    with get_db() as db:
-        rows = db.execute(
-            select(Checkin, Passenger)
-            .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
-            .where(Checkin.service_date == d)
-            .order_by(desc(Checkin.created_at))
-        ).all()
+with get_db() as db:
+    rows = db.execute(
+        select(Checkin, Passenger)
+        .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
+        .where(Checkin.service_date == d)
+        .order_by(desc(Checkin.created_at))
+    ).all()
 
     data = []
     for c, p in rows:
