@@ -23,7 +23,13 @@ ENGINE = create_engine(
     future=True,
 )
 
-SessionLocal = sessionmaker(bind=ENGINE, autoflush=False, autocommit=False, future=True)
+SessionLocal = sessionmaker(
+    bind=ENGINE,
+    autoflush=False,
+    autocommit=False,
+    future=True,
+    expire_on_commit=False,
+)
 
 
 def _exec_autocommit(stmts: list[str], warn_prefix: str) -> None:
