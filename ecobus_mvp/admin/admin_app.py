@@ -114,19 +114,19 @@ with tabs[1]:
     with colB:
         show_inactive = st.checkbox("Incluir inactivos", value=True, key="p_show_inactive")
 
-    with get_db() as db:
-        stmt = select(Passenger)
-        if q:
-            like = f"%{q.strip()}%"
-            stmt = stmt.where(
-                (Passenger.full_name.ilike(like)) |
-                (Passenger.phone.ilike(like)) |
-                (Passenger.code.ilike(like))
-            )
-        if not show_inactive:
-            stmt = stmt.where(Passenger.is_active == True)
+with get_db() as db:
+    stmt = select(Passenger)
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            (Passenger.full_name.ilike(like)) |
+            (Passenger.phone.ilike(like)) |
+            (Passenger.code.ilike(like))
+        )
+    if not show_inactive:
+        stmt = stmt.where(Passenger.is_active == True)
 
-        passengers = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
+    passengers = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
 
     passenger_rows = [{
         "id": str(p.id),
@@ -135,7 +135,7 @@ with tabs[1]:
         "phone": p.phone,
         "email": p.email,
         "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
-        "active": p.is_active,
+        "active": bool(p.is_active),
     } for p in passengers]
 
     st.write(f"Resultados: {len(passenger_rows)}")
