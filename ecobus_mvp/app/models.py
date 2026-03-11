@@ -184,7 +184,8 @@ class QrToken(Base):
     valid_to: Mapped[datetime] = mapped_column(DateTime, index=True)
 
     passenger: Mapped[Passenger] = relationship(back_populates="tokens")
-    class OneTimeTokenStatus(str, PyEnum):
+
+class OneTimeTokenStatus(str, PyEnum):
     ACTIVE = "ACTIVE"
     USED = "USED"
     REVOKED = "REVOKED"
