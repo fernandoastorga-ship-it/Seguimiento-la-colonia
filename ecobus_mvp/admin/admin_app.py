@@ -235,11 +235,17 @@ if detail_code:
             amount = PLAN_PRICES.get(plan_name, 0)
 
             paid_when = sub_data["activated_at"].isoformat(sep=" ", timespec="minutes") if sub_data["activated_at"] else "—"
-            next_due = next_month.isoformat()
+            paid_at = sub_data["activated_at"]
+            base_dt = paid_at if paid_at else datetime.now()
+            next_due_dt = base_dt + timedelta(days=30)
+            next_due = next_due_dt.strftime("%Y-%m-%d %H:%M")
+            days_left = (next_due_dt.date() - datetime.now().date()).days
 
             pay_col1.metric("Estado de pago", sub_data["payment_status"] or "—")
             pay_col2.metric("Pagó (activado)", paid_when)
             pay_col3.metric("Próximo pago", next_due)
+
+            st.caption(f"Días restantes para renovar: {days_left}")
 
             if amount:
                 st.info(f"Monto plan: ${amount:,} CLP".replace(",", "."))
