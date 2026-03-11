@@ -140,115 +140,138 @@ PLAN_PRICES = {
 }
 
 if detail_code:
+    p_data = None
+    sub_data = None
+    checkin_rows = []
+
+    # calcular rango del mes
+    month_start_dt = datetime.combine(month_for_detail, datetime.min.time())
+    next_month = (month_for_detail.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end_dt = datetime.combine(next_month, datetime.min.time())
+
     with get_db() as db:
         p = db.execute(select(Passenger).where(Passenger.code == detail_code)).scalar_one_or_none()
         if not p:
             st.error("No existe pasajero con ese código")
         else:
-            # Subscription del mes
+            # pasa el pasajero a dict (evita DetachedInstanceError)
+            p_data = {
+                "id": p.id,
+                "code": p.code,
+                "full_name": p.full_name,
+                "phone": p.phone,
+                "email": p.email,
+                "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
+                "is_active": bool(p.is_active),
+            }
+
             sub = db.execute(
                 select(Subscription).where(
                     and_(Subscription.passenger_id == p.id, Subscription.month == month_for_detail)
                 )
             ).scalar_one_or_none()
 
-            # Checkins del mes (todos)
+            if sub:
+                used_total = (sub.rides_used_ida or 0) + (sub.rides_used_vuelta or 0)
+                remaining = max(0, (sub.rides_included or 0) - used_total)
+                plan_name = sub.plan_type.value if sub.plan_type else None
+
+                sub_data = {
+                    "plan": plan_name,
+                    "payment_status": sub.payment_status.value if sub.payment_status else None,
+                    "rides_included": sub.rides_included,
+                    "rides_used_ida": sub.rides_used_ida,
+                    "rides_used_vuelta": sub.rides_used_vuelta,
+                    "rides_used_total": used_total,
+                    "rides_remaining": remaining,
+                    "activated_at": sub.activated_at,
+                    "notes": sub.notes,
+                }
+
             checkins = db.execute(
                 select(Checkin)
                 .where(
                     and_(
                         Checkin.passenger_id == p.id,
-                        Checkin.created_at >= datetime.combine(month_for_detail, datetime.min.time()),
-                        Checkin.created_at < datetime.combine(
-                            (month_for_detail.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1),
-                            datetime.min.time(),
-                        ),
+                        Checkin.created_at >= month_start_dt,
+                        Checkin.created_at < month_end_dt,
                     )
                 )
                 .order_by(desc(Checkin.created_at))
                 .limit(300)
             ).scalars().all()
 
-    # ---------- Resumen ----------
-    st.markdown("### Resumen / Status")
+            # checkins a dict
+            for c in checkins:
+                checkin_rows.append({
+                    "fecha_hora": c.created_at.isoformat(sep=" ", timespec="seconds") if c.created_at else None,
+                    "service_date": c.service_date.isoformat() if c.service_date else None,
+                    "trip_type": c.trip_type.value if c.trip_type else None,
+                    "pickup_point": c.pickup_point.value if c.pickup_point else None,
+                    "resultado": c.result.value if c.result else None,
+                    "razon": c.reason,
+                })
 
-    col1, col2, col3, col4 = st.columns(4)
+    # si no hay pasajero, p_data queda None y ya mostramos error arriba
+    if p_data:
+        st.markdown("### Resumen / Status")
 
-    # Estado pasajero
-    col1.metric("Activo", "Sí" if p.is_active else "No")
-    col2.metric("Punto default", p.pickup_point_default.value if p.pickup_point_default else "—")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Activo", "Sí" if p_data["is_active"] else "No")
+        col2.metric("Punto default", p_data["pickup_default"] or "—")
 
-    # Plan y saldo
-    if sub:
-        used_total = (sub.rides_used_ida or 0) + (sub.rides_used_vuelta or 0)
-        remaining = max(0, (sub.rides_included or 0) - used_total)
-        plan_name = sub.plan_type.value if sub.plan_type else "—"
-        col3.metric("Plan", plan_name)
-        col4.metric("Restantes", str(remaining))
-    else:
-        col3.metric("Plan", "Sin plan")
-        col4.metric("Restantes", "—")
-
-    # Pago / próximos hitos
-    st.markdown("### Pago / Renovación")
-    pay_col1, pay_col2, pay_col3 = st.columns(3)
-
-    if sub:
-        paid_status = sub.payment_status.value if sub.payment_status else "—"
-        paid_when = sub.activated_at.isoformat(sep=" ", timespec="minutes") if sub.activated_at else "—"
-        next_due = ((month_for_detail.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1)).isoformat()
-
-        # Monto estimado (si llenas PLAN_PRICES)
-        amount = PLAN_PRICES.get(plan_name, 0)
-
-        pay_col1.metric("Estado de pago", paid_status)
-        pay_col2.metric("Pagó (activado)", paid_when)
-        pay_col3.metric("Próximo pago", next_due)
-
-        if amount:
-            st.info(f"Monto estimado según plan: {amount:,} CLP".replace(",", "."))
+        if sub_data:
+            col3.metric("Plan", sub_data["plan"] or "—")
+            col4.metric("Restantes", str(sub_data["rides_remaining"]))
         else:
-            st.caption("Monto: no configurado (puedes definir precios en PLAN_PRICES o guardarlo en DB).")
-    else:
-        st.info("Este pasajero no tiene plan para el mes seleccionado.")
+            col3.metric("Plan", "Sin plan")
+            col4.metric("Restantes", "—")
 
-    # ---------- Viajes del mes ----------
-    st.markdown("### Viajes (check-ins) del mes")
-    if checkins:
-        ok_count = sum(1 for c in checkins if c.result == CheckinResult.OK)
-        rej_count = sum(1 for c in checkins if c.result == CheckinResult.REJECTED)
+        st.markdown("### Pago / Renovación")
+        pay_col1, pay_col2, pay_col3 = st.columns(3)
 
-        colA, colB, colC = st.columns(3)
-        colA.metric("OK", ok_count)
-        colB.metric("RECHAZADOS", rej_count)
-        colC.metric("TOTAL", len(checkins))
+        if sub_data:
+            plan_name = sub_data["plan"] or ""
+            amount = PLAN_PRICES.get(plan_name, 0)
 
-        # tabla detalle
-        dfc = pd.DataFrame([{
-            "fecha_hora": c.created_at.isoformat(sep=" ", timespec="seconds") if c.created_at else None,
-            "service_date": c.service_date.isoformat() if c.service_date else None,
-            "trip_type": c.trip_type.value if c.trip_type else None,
-            "pickup_point": c.pickup_point.value if c.pickup_point else None,
-            "resultado": c.result.value if c.result else None,
-            "razon": c.reason,
-        } for c in checkins])
+            paid_when = sub_data["activated_at"].isoformat(sep=" ", timespec="minutes") if sub_data["activated_at"] else "—"
+            next_due = next_month.isoformat()
 
-        st.dataframe(dfc, use_container_width=True)
-        download_df(dfc, f"checkins_{detail_code}_{month_for_detail.isoformat()}.csv")
+            pay_col1.metric("Estado de pago", sub_data["payment_status"] or "—")
+            pay_col2.metric("Pagó (activado)", paid_when)
+            pay_col3.metric("Próximo pago", next_due)
 
-        st.markdown("#### Rechazos por razón")
-        st.dataframe(
-            dfc[dfc["resultado"] == "REJECTED"]["razon"]
-              .value_counts()
-              .reset_index()
-              .rename(columns={"index": "razon", "razon": "conteo"}),
-            use_container_width=True
-        )
+            if amount:
+                st.info(f"Monto plan: ${amount:,} CLP".replace(",", "."))
+        else:
+            st.info("Este pasajero no tiene plan para el mes seleccionado.")
 
-        st.markdown("#### Último escaneo")
-        st.write(dfc.iloc[0].to_dict())
-    else:
-        st.info("Sin check-ins registrados en el mes seleccionado para este pasajero.")
+        st.markdown("### Viajes (check-ins) del mes")
+        if checkin_rows:
+            dfc = pd.DataFrame(checkin_rows)
+
+            ok_count = (dfc["resultado"] == "OK").sum()
+            rej_count = (dfc["resultado"] == "REJECTED").sum()
+
+            colA, colB, colC = st.columns(3)
+            colA.metric("OK", int(ok_count))
+            colB.metric("RECHAZADOS", int(rej_count))
+            colC.metric("TOTAL", int(len(dfc)))
+
+            st.dataframe(dfc, use_container_width=True)
+            download_df(dfc, f"checkins_{p_data['code']}_{month_for_detail.isoformat()}.csv")
+
+            st.markdown("#### Rechazos por razón")
+            st.dataframe(
+                dfc[dfc["resultado"] == "REJECTED"]["razon"]
+                  .value_counts()
+                  .reset_index()
+                  .rename(columns={"index": "razon", "razon": "conteo"}),
+                use_container_width=True
+            )
+        else:
+            st.info("Sin check-ins registrados en el mes seleccionado para este pasajero.")
+
 
         # ---- ACCIONES (nuevo) ----
         st.markdown("---")
