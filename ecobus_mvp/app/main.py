@@ -26,6 +26,8 @@ from .models import (
     ReservationStatus,
     CheckinResult,
     TokenStatus,
+    OneTimeToken,
+    OneTimeTokenStatus,
 )
 from .schemas import (
     PassengerCreate,
@@ -130,7 +132,20 @@ def token_landing(token: str):
         </body></html>
         """
     )
-
+@app.get("/ot/{token}")
+def one_time_landing(token: str):
+    return HTMLResponse(
+        f"""
+        <html><head><meta name='viewport' content='width=device-width, initial-scale=1' />
+        <title>QR Pase Diario</title>
+        <style>body{{font-family:system-ui; padding:24px;}}</style></head>
+        <body>
+          <h2>QR Pase Diario</h2>
+          <p>Este QR es de un solo uso.</p>
+          <p><b>Token:</b> {token}</p>
+        </body></html>
+        """
+    )
 
 # ---------- Passengers ----------
 
@@ -365,6 +380,80 @@ def validate(
         t = db.execute(select(QrToken).where(QrToken.token == token)).scalar_one_or_none()
         now = now_local()
         service_date = now.date()
+
+                # ---- 1) SI NO ES TOKEN MENSUAL, PROBAR TOKEN ONE-TIME (PASE DIARIO) ----
+        if not t:
+            ot = db.execute(select(OneTimeToken).where(OneTimeToken.token == token)).scalar_one_or_none()
+
+            if not ot:
+                _log_checkin(db, None, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_INVALIDO")
+                return ValidateResponse(result="REJECTED", reason="TOKEN_INVALIDO", message="Token inválido o no existe.")
+
+            if ot.status != OneTimeTokenStatus.ACTIVE or ot.used_at is not None:
+                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_USADO")
+                return ValidateResponse(result="REJECTED", reason="TOKEN_USADO", message="QR ya fue utilizado.")
+
+            # Debe ser para HOY y mismo tipo de viaje
+            if ot.service_date != service_date:
+                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_FECHA")
+                return ValidateResponse(result="REJECTED", reason="TOKEN_FECHA", message="QR no corresponde a esta fecha.")
+
+            if ot.trip_type != trip_type:
+                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_TIPO")
+                return ValidateResponse(result="REJECTED", reason="TOKEN_TIPO", message="QR no corresponde a este tipo de viaje.")
+
+            p_ot = db.get(Passenger, ot.passenger_id)
+            if not p_ot or not p_ot.is_active:
+                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_INACTIVO")
+                return ValidateResponse(result="REJECTED", reason="PLAN_INACTIVO", message="Pasajero inactivo.")
+
+            # Validar que existe DailyPass PAGADO + CONFIRMADO para hoy y trip
+            dp = db.execute(
+                select(DailyPass).where(
+                    and_(
+                        DailyPass.passenger_id == p_ot.id,
+                        DailyPass.service_date == service_date,
+                        DailyPass.trip_type == trip_type,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if not dp:
+                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_DERECHO_A_VIAJE")
+                return ValidateResponse(
+                    result="REJECTED",
+                    full_name=p_ot.full_name,
+                    code=p_ot.code,
+                    reason="SIN_DERECHO_A_VIAJE",
+                    message="No existe pase diario para hoy.",
+                )
+
+            if dp.payment_status != PaymentStatus.PAGADO or dp.reservation_status != ReservationStatus.CONFIRMADO:
+                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PASE_NO_CONFIRMADO")
+                return ValidateResponse(
+                    result="REJECTED",
+                    full_name=p_ot.full_name,
+                    code=p_ot.code,
+                    reason="PASE_NO_CONFIRMADO",
+                    message="Pase diario no pagado o no confirmado.",
+                )
+
+            # Consumir token (1 uso) y registrar OK
+            ot.status = OneTimeTokenStatus.USED
+            ot.used_at = now.replace(tzinfo=None)
+            db.add(ot)
+
+            _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.OK, None)
+
+            return ValidateResponse(
+                result="OK",
+                full_name=p_ot.full_name,
+                code=p_ot.code,
+                plan="PASE_DIARIO",
+                month=month_start(service_date),
+                pickup_point=pickup_point.value,
+                message="Pase diario OK. QR consumido (1 uso).",
+            )
 
         if not t or t.status != TokenStatus.ACTIVE:
             _log_checkin(db, None, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_INVALIDO")
