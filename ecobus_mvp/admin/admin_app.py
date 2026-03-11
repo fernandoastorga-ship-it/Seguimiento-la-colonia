@@ -49,35 +49,38 @@ PLAN_PRICES = {
 }
 
 
+# =========================
+# TABS (UI ordenada)
+# =========================
+
 tabs = st.tabs(["Dashboard día", "Pasajeros", "Planes mensuales", "Pase diario"])
 
-# -------------------------
-# TAB 0: Dashboard día
-# -------------------------
-with tabs[0]:
+
+def render_dashboard_dia():
     st.subheader("Dashboard día")
     d = st.date_input("Fecha de servicio", value=date.today(), key="dash_date")
 
-with get_db() as db:
-    rows = db.execute(
-        select(Checkin, Passenger)
-        .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
-        .where(Checkin.service_date == d)
-        .order_by(desc(Checkin.created_at))
-    ).all()
+    with get_db() as db:
+        rows = db.execute(
+            select(Checkin, Passenger)
+            .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
+            .where(Checkin.service_date == d)
+            .order_by(desc(Checkin.created_at))
+        ).all()
 
-    data = []
-    for c, p in rows:
-        data.append({
-            "hora": c.created_at.strftime("%H:%M:%S") if c.created_at else None,
-            "fecha": c.service_date.isoformat() if c.service_date else None,
-            "trip_type": c.trip_type.value if c.trip_type else None,
-            "pickup_point": c.pickup_point.value if c.pickup_point else None,
-            "resultado": c.result.value if c.result else None,
-            "razon": c.reason,
-            "codigo": p.code if p else None,
-            "nombre": p.full_name if p else None,
-        })
+        data = []
+        for c, p in rows:
+            data.append({
+                "hora": c.created_at.strftime("%H:%M:%S") if c.created_at else None,
+                "fecha": c.service_date.isoformat() if c.service_date else None,
+                "trip_type": c.trip_type.value if c.trip_type else None,
+                "pickup_point": c.pickup_point.value if c.pickup_point else None,
+                "resultado": c.result.value if c.result else None,
+                "razon": c.reason,
+                "codigo": p.code if p else None,
+                "nombre": p.full_name if p else None,
+            })
+
     df = pd.DataFrame(data)
 
     if df.empty:
@@ -102,10 +105,8 @@ with get_db() as db:
             use_container_width=True
         )
 
-# -------------------------
-# TAB 1: Pasajeros
-# -------------------------
-with tabs[1]:
+
+def render_pasajeros():
     st.subheader("Pasajeros")
 
     colA, colB = st.columns([2, 1])
@@ -114,29 +115,29 @@ with tabs[1]:
     with colB:
         show_inactive = st.checkbox("Incluir inactivos", value=True, key="p_show_inactive")
 
-with get_db() as db:
-    stmt = select(Passenger)
-    if q:
-        like = f"%{q.strip()}%"
-        stmt = stmt.where(
-            (Passenger.full_name.ilike(like)) |
-            (Passenger.phone.ilike(like)) |
-            (Passenger.code.ilike(like))
-        )
-    if not show_inactive:
-        stmt = stmt.where(Passenger.is_active == True)
+    with get_db() as db:
+        stmt = select(Passenger)
+        if q:
+            like = f"%{q.strip()}%"
+            stmt = stmt.where(
+                (Passenger.full_name.ilike(like)) |
+                (Passenger.phone.ilike(like)) |
+                (Passenger.code.ilike(like))
+            )
+        if not show_inactive:
+            stmt = stmt.where(Passenger.is_active == True)
 
-    passengers = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
+        passengers = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
 
-    passenger_rows = [{
-        "id": str(p.id),
-        "code": p.code,
-        "full_name": p.full_name,
-        "phone": p.phone,
-        "email": p.email,
-        "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
-        "active": bool(p.is_active),
-    } for p in passengers]
+        passenger_rows = [{
+            "id": str(p.id),
+            "code": p.code,
+            "full_name": p.full_name,
+            "phone": p.phone,
+            "email": p.email,
+            "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
+            "active": bool(p.is_active),
+        } for p in passengers]
 
     st.write(f"Resultados: {len(passenger_rows)}")
     if passenger_rows:
@@ -393,10 +394,8 @@ with get_db() as db:
             st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
             st.caption(f"ID interno: {passenger_id}")
 
-# -------------------------
-# TAB 2: Planes mensuales
-# -------------------------
-with tabs[2]:
+
+def render_planes_mensuales():
     st.subheader("Planes mensuales")
 
     month = st.date_input(
@@ -490,10 +489,8 @@ with tabs[2]:
 
         st.success("Plan guardado y QR rotado.")
 
-# -------------------------
-# TAB 3: Pase diario
-# -------------------------
-with tabs[3]:
+
+def render_pase_diario():
     st.subheader("Pase diario")
 
     d = st.date_input("Fecha", value=date.today(), key="dp_date")
@@ -548,6 +545,19 @@ with tabs[3]:
                 )
                 db.add(dp)
         st.success("Solicitud creada")
+
+
+with tabs[0]:
+    render_dashboard_dia()
+
+with tabs[1]:
+    render_pasajeros()
+
+with tabs[2]:
+    render_planes_mensuales()
+
+with tabs[3]:
+    render_pase_diario()
 
 st.markdown("---")
 st.caption("Config: Render + Postgres recomendado. TZ y ventanas horarias desde variables de entorno.")
