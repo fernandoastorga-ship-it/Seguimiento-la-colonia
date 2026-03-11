@@ -121,6 +121,134 @@ with tabs[1]:
     if passenger_rows:
         dfp = pd.DataFrame(passenger_rows)
         st.dataframe(dfp, use_container_width=True)
+        st.markdown("---")
+st.markdown("## Detalle de pasajero")
+
+detail_code = st.text_input("Código pasajero para ver detalle (ej: ECO0001)", key="detail_code").strip().upper()
+month_for_detail = st.date_input(
+    "Mes a revisar (usar 1er día del mes)",
+    value=date(date.today().year, date.today().month, 1),
+    key="detail_month",
+)
+
+# (Opcional) precios por plan (si no quieres montos, elimina esto)
+PLAN_PRICES = {
+    "VIAJES_10": 18500,
+    "VIAJES_20": 35000,
+    "VIAJES_30": 49000,
+    "VIAJES_40": 60000,
+}
+
+if detail_code:
+    with get_db() as db:
+        p = db.execute(select(Passenger).where(Passenger.code == detail_code)).scalar_one_or_none()
+        if not p:
+            st.error("No existe pasajero con ese código")
+        else:
+            # Subscription del mes
+            sub = db.execute(
+                select(Subscription).where(
+                    and_(Subscription.passenger_id == p.id, Subscription.month == month_for_detail)
+                )
+            ).scalar_one_or_none()
+
+            # Checkins del mes (todos)
+            checkins = db.execute(
+                select(Checkin)
+                .where(
+                    and_(
+                        Checkin.passenger_id == p.id,
+                        Checkin.created_at >= datetime.combine(month_for_detail, datetime.min.time()),
+                        Checkin.created_at < datetime.combine(
+                            (month_for_detail.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1),
+                            datetime.min.time(),
+                        ),
+                    )
+                )
+                .order_by(desc(Checkin.created_at))
+                .limit(300)
+            ).scalars().all()
+
+    # ---------- Resumen ----------
+    st.markdown("### Resumen / Status")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    # Estado pasajero
+    col1.metric("Activo", "Sí" if p.is_active else "No")
+    col2.metric("Punto default", p.pickup_point_default.value if p.pickup_point_default else "—")
+
+    # Plan y saldo
+    if sub:
+        used_total = (sub.rides_used_ida or 0) + (sub.rides_used_vuelta or 0)
+        remaining = max(0, (sub.rides_included or 0) - used_total)
+        plan_name = sub.plan_type.value if sub.plan_type else "—"
+        col3.metric("Plan", plan_name)
+        col4.metric("Restantes", str(remaining))
+    else:
+        col3.metric("Plan", "Sin plan")
+        col4.metric("Restantes", "—")
+
+    # Pago / próximos hitos
+    st.markdown("### Pago / Renovación")
+    pay_col1, pay_col2, pay_col3 = st.columns(3)
+
+    if sub:
+        paid_status = sub.payment_status.value if sub.payment_status else "—"
+        paid_when = sub.activated_at.isoformat(sep=" ", timespec="minutes") if sub.activated_at else "—"
+        next_due = ((month_for_detail.replace(day=28) + __import__("datetime").timedelta(days=4)).replace(day=1)).isoformat()
+
+        # Monto estimado (si llenas PLAN_PRICES)
+        amount = PLAN_PRICES.get(plan_name, 0)
+
+        pay_col1.metric("Estado de pago", paid_status)
+        pay_col2.metric("Pagó (activado)", paid_when)
+        pay_col3.metric("Próximo pago", next_due)
+
+        if amount:
+            st.info(f"Monto estimado según plan: {amount:,} CLP".replace(",", "."))
+        else:
+            st.caption("Monto: no configurado (puedes definir precios en PLAN_PRICES o guardarlo en DB).")
+    else:
+        st.info("Este pasajero no tiene plan para el mes seleccionado.")
+
+    # ---------- Viajes del mes ----------
+    st.markdown("### Viajes (check-ins) del mes")
+    if checkins:
+        ok_count = sum(1 for c in checkins if c.result == CheckinResult.OK)
+        rej_count = sum(1 for c in checkins if c.result == CheckinResult.REJECTED)
+
+        colA, colB, colC = st.columns(3)
+        colA.metric("OK", ok_count)
+        colB.metric("RECHAZADOS", rej_count)
+        colC.metric("TOTAL", len(checkins))
+
+        # tabla detalle
+        dfc = pd.DataFrame([{
+            "fecha_hora": c.created_at.isoformat(sep=" ", timespec="seconds") if c.created_at else None,
+            "service_date": c.service_date.isoformat() if c.service_date else None,
+            "trip_type": c.trip_type.value if c.trip_type else None,
+            "pickup_point": c.pickup_point.value if c.pickup_point else None,
+            "resultado": c.result.value if c.result else None,
+            "razon": c.reason,
+        } for c in checkins])
+
+        st.dataframe(dfc, use_container_width=True)
+        download_df(dfc, f"checkins_{detail_code}_{month_for_detail.isoformat()}.csv")
+
+        st.markdown("#### Rechazos por razón")
+        st.dataframe(
+            dfc[dfc["resultado"] == "REJECTED"]["razon"]
+              .value_counts()
+              .reset_index()
+              .rename(columns={"index": "razon", "razon": "conteo"}),
+            use_container_width=True
+        )
+
+        st.markdown("#### Último escaneo")
+        st.write(dfc.iloc[0].to_dict())
+    else:
+        st.info("Sin check-ins registrados en el mes seleccionado para este pasajero.")
 
         # ---- ACCIONES (nuevo) ----
         st.markdown("---")
