@@ -79,6 +79,11 @@ def root():
     }
 
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
 @app.get("/scan", response_class=HTMLResponse)
 def scan_page(pin: str | None = None):
     # Simple PIN gate (mobile-first). Scanner can bookmark /scan?pin=XXXX
