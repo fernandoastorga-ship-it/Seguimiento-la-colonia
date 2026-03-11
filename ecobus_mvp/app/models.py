@@ -184,3 +184,27 @@ class QrToken(Base):
     valid_to: Mapped[datetime] = mapped_column(DateTime, index=True)
 
     passenger: Mapped[Passenger] = relationship(back_populates="tokens")
+    class OneTimeTokenStatus(str, PyEnum):
+    ACTIVE = "ACTIVE"
+    USED = "USED"
+    REVOKED = "REVOKED"
+
+
+class OneTimeToken(Base):
+    __tablename__ = "one_time_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
+
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+
+    service_date: Mapped[date] = mapped_column(Date, index=True)
+    trip_type: Mapped[TripType] = mapped_column(SAEnum(TripType, name="trip_type_enum"), index=True)
+
+    status: Mapped[OneTimeTokenStatus] = mapped_column(
+        SAEnum(OneTimeTokenStatus, name="one_time_token_status_enum"),
+        default=OneTimeTokenStatus.ACTIVE,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
