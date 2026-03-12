@@ -28,7 +28,7 @@ SessionLocal = sessionmaker(
     autoflush=False,
     autocommit=False,
     future=True,
-    expire_on_commit=False,
+    expire_on_commit=False,  # evita DetachedInstanceError en admin
 )
 
 
@@ -41,51 +41,73 @@ def _exec_autocommit(stmts: list[str], warn_prefix: str) -> None:
         print(f"WARN: {warn_prefix}:", repr(e))
 
 
+def _get_udt_name(table: str, column: str, schema: str = "public") -> str | None:
+    """
+    Devuelve el nombre real del tipo (udt_name) que usa una columna.
+    Para enums en Postgres, udt_name suele ser el nombre del TYPE.
+    """
+    try:
+        with ENGINE.connect() as conn:
+            res = conn.execute(
+                text(
+                    """
+                    SELECT udt_name
+                    FROM information_schema.columns
+                    WHERE table_schema = :schema
+                      AND table_name = :table
+                      AND column_name = :column
+                    LIMIT 1
+                    """
+                ),
+                {"schema": schema, "table": table, "column": column},
+            ).fetchone()
+            return res[0] if res else None
+    except Exception as e:
+        print("WARN: _get_udt_name failed:", repr(e))
+        return None
+
+
+def _ensure_enum_values(enum_type_name: str, values: list[str]) -> None:
+    stmts = [f"ALTER TYPE {enum_type_name} ADD VALUE IF NOT EXISTS '{v}';" for v in values]
+    _exec_autocommit(stmts, f"_ensure_enum_values failed for {enum_type_name}")
+
+
 def _ensure_plan_enum_values() -> None:
-    """
-    Ensures Postgres enum 'plantype' contains the new ride-pack values.
-    Runs on import in both API and Admin.
-    """
-    stmts = [
-        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_10';",
-        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_20';",
-        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_30';",
-        "ALTER TYPE plantype ADD VALUE IF NOT EXISTS 'VIAJES_40';",
-    ]
-    _exec_autocommit(stmts, "_ensure_plan_enum_values failed")
+    # tu enum de planes (puede llamarse 'plantype' o 'plan_type_enum' según historia)
+    for enum_name in ["plantype", "plan_type_enum"]:
+        _ensure_enum_values(enum_name, ["VIAJES_10", "VIAJES_20", "VIAJES_30", "VIAJES_40"])
 
 
 def _ensure_pickup_point_enum_values() -> None:
     """
-    Asegura que el enum de Postgres que usa PickupPoint tenga LA_MONEDA, etc.
-    En algunos despliegues el tipo se llama 'pickup_point_enum', en otros 'pickup_point'.
-    Probamos ambos.
+    Asegura que el enum real usado por:
+      - passengers.pickup_point_default
+      - checkins.pickup_point
+    contenga LA_MONEDA, etc.
     """
-    enum_type_names = ["pickup_point_enum", "pickup_point"]
+    values = ["LA_COLONIA", "CRUCE_MALLOCO", "LA_MONEDA"]
 
-    values = [
-        "LA_COLONIA",
-        "CRUCE_MALLOCO",
-        "LA_MONEDA",
-        # deja los extras solo si realmente los usas en tu enum PickupPoint
-        # "PLAZA_PENAFOR",
-        # "METRO_LO_VALLEDOR",
-        # "METRO_LA_MONEDA",
-    ]
+    # 1) Descubrir por columna (la forma correcta)
+    udt_passengers = _get_udt_name("passengers", "pickup_point_default")
+    if udt_passengers:
+        _ensure_enum_values(udt_passengers, values)
 
-    for enum_name in enum_type_names:
-        stmts = [f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{v}';" for v in values]
-        _exec_autocommit(stmts, f"_ensure_pickup_point_enum_values failed for {enum_name}")
+    udt_checkins = _get_udt_name("checkins", "pickup_point")
+    if udt_checkins:
+        _ensure_enum_values(udt_checkins, values)
+
+    # 2) Fallback por si information_schema no devuelve (raro, pero posible)
+    for enum_name in ["pickup_point_enum", "pickup_point"]:
+        _ensure_enum_values(enum_name, values)
 
 
 def _migrate_old_subscription_plan_values() -> None:
     """
-    Migra planes antiguos a VIAJES_* según tu regla:
+    Migra planes antiguos a VIAJES_* según regla:
       - IDA o VUELTA  -> VIAJES_20
       - IDA_VUELTA    -> VIAJES_40
-      - Cualquier otro no VIAJES_* -> si rides_included calza 10/20/30/40 usa eso, si no -> VIAJES_20
-
-    IMPORTANTE: plan_type es ENUM (plantype), por eso casteamos a ::plantype.
+      - otros -> por rides_included, default VIAJES_20
+    (castea a ::plantype porque la columna es ENUM)
     """
     stmts = [
         """
@@ -102,7 +124,7 @@ def _migrate_old_subscription_plan_values() -> None:
                 ELSE 'VIAJES_20'
               END
             )::plantype
-        WHERE plan_type::text NOT LIKE 'VIAJES_%';
+        WHERE plan_type::text NOT IN ('VIAJES_10','VIAJES_20','VIAJES_30','VIAJES_40');
         """
     ]
     _exec_autocommit(stmts, "_migrate_old_subscription_plan_values failed")
