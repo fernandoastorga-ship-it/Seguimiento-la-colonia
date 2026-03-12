@@ -57,19 +57,25 @@ def _ensure_plan_enum_values() -> None:
 
 def _ensure_pickup_point_enum_values() -> None:
     """
-    Ensures Postgres enum 'pickup_point_enum' contains current pickup points.
-    Add/remove values here to match app.models.PickupPoint.
+    Asegura que el enum de Postgres que usa PickupPoint tenga LA_MONEDA, etc.
+    En algunos despliegues el tipo se llama 'pickup_point_enum', en otros 'pickup_point'.
+    Probamos ambos.
     """
-    stmts = [
-        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'LA_COLONIA';",
-        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'CRUCE_MALLOCO';",
-        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'LA_MONEDA';",
-        # If you truly use these in your PickupPoint enum, keep them; otherwise remove.
-        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'PLAZA_PENAFOR';",
-        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'METRO_LO_VALLEDOR';",
-        "ALTER TYPE pickup_point_enum ADD VALUE IF NOT EXISTS 'METRO_LA_MONEDA';",
+    enum_type_names = ["pickup_point_enum", "pickup_point"]
+
+    values = [
+        "LA_COLONIA",
+        "CRUCE_MALLOCO",
+        "LA_MONEDA",
+        # deja los extras solo si realmente los usas en tu enum PickupPoint
+        # "PLAZA_PENAFOR",
+        # "METRO_LO_VALLEDOR",
+        # "METRO_LA_MONEDA",
     ]
-    _exec_autocommit(stmts, "_ensure_pickup_point_enum_values failed")
+
+    for enum_name in enum_type_names:
+        stmts = [f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{v}';" for v in values]
+        _exec_autocommit(stmts, f"_ensure_pickup_point_enum_values failed for {enum_name}")
 
 
 def _migrate_old_subscription_plan_values() -> None:
