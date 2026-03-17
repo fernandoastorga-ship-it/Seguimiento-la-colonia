@@ -381,55 +381,37 @@ def validate(
         now = now_local()
         service_date = now.date()
 
-                # ---- 1) SI NO ES TOKEN MENSUAL, PROBAR TOKEN ONE-TIME (PASE DIARIO) ----
+        # ---- 1) SI NO ES TOKEN MENSUAL, PROBAR TOKEN ONE-TIME (PASE DIARIO) ----
         if not t:
             ot = db.execute(select(OneTimeToken).where(OneTimeToken.token == token)).scalar_one_or_none()
 
             if not ot:
-                _log_checkin(db, None, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_INVALIDO")
+                _log_checkin(db, None, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_INVALIDO", entitlement=None)
                 return ValidateResponse(result="REJECTED", reason="TOKEN_INVALIDO", message="Token inválido o no existe.")
 
             if ot.status != OneTimeTokenStatus.ACTIVE or ot.used_at is not None:
-                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_USADO")
+                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_USADO", entitlement="DAILY_PASS")
                 return ValidateResponse(result="REJECTED", reason="TOKEN_USADO", message="QR ya fue utilizado.")
-
-            # Debe ser para HOY y mismo tipo de viaje
-            if ot.service_date != service_date:
-                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_FECHA")
-                return ValidateResponse(result="REJECTED", reason="TOKEN_FECHA", message="QR no corresponde a esta fecha.")
-
-            if ot.trip_type != trip_type:
-                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_TIPO")
-                return ValidateResponse(result="REJECTED", reason="TOKEN_TIPO", message="QR no corresponde a este tipo de viaje.")
 
             p_ot = db.get(Passenger, ot.passenger_id)
             if not p_ot or not p_ot.is_active:
-                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_INACTIVO")
+                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_INACTIVO", entitlement="DAILY_PASS")
                 return ValidateResponse(result="REJECTED", reason="PLAN_INACTIVO", message="Pasajero inactivo.")
 
-            # Validar que existe DailyPass PAGADO + CONFIRMADO para hoy y trip
-            dp = db.execute(
-                select(DailyPass).where(
-                    and_(
-                        DailyPass.passenger_id == p_ot.id,
-                        DailyPass.service_date == service_date,
-                        DailyPass.trip_type == trip_type,
-                    )
-                )
-            ).scalar_one_or_none()
-
+            dp = db.get(DailyPass, ot.daily_pass_id)
             if not dp:
-                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_DERECHO_A_VIAJE")
+                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_DERECHO_A_VIAJE", entitlement="DAILY_PASS")
                 return ValidateResponse(
                     result="REJECTED",
                     full_name=p_ot.full_name,
                     code=p_ot.code,
                     reason="SIN_DERECHO_A_VIAJE",
-                    message="No existe pase diario para hoy.",
+                    message="No existe pase diario asociado a este QR.",
                 )
 
+            # Revalidación de seguridad (aunque el QR se genera solo con pago confirmado)
             if dp.payment_status != PaymentStatus.PAGADO or dp.reservation_status != ReservationStatus.CONFIRMADO:
-                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PASE_NO_CONFIRMADO")
+                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PASE_NO_CONFIRMADO", entitlement="DAILY_PASS")
                 return ValidateResponse(
                     result="REJECTED",
                     full_name=p_ot.full_name,
@@ -438,12 +420,23 @@ def validate(
                     message="Pase diario no pagado o no confirmado.",
                 )
 
-            # Consumir token (1 uso) y registrar OK
+            # El pase diario debe coincidir con el tipo de viaje seleccionado en el scanner
+            if dp.trip_type != trip_type:
+                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_TIPO", entitlement="DAILY_PASS")
+                return ValidateResponse(
+                    result="REJECTED",
+                    full_name=p_ot.full_name,
+                    code=p_ot.code,
+                    reason="TOKEN_TIPO",
+                    message="Este QR no corresponde a este tipo de viaje (IDA/VUELTA).",
+                )
+
+            # Consumir token (1 uso)
             ot.status = OneTimeTokenStatus.USED
             ot.used_at = now.replace(tzinfo=None)
             db.add(ot)
 
-            _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.OK, None)
+            _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.OK, None, entitlement="DAILY_PASS")
 
             return ValidateResponse(
                 result="OK",
@@ -643,7 +636,7 @@ def validate(
         )
 
 
-def _log_checkin(db, passenger_id, service_date, trip_type, pickup_point, result, reason):
+def _log_checkin(db, passenger_id, service_date, trip_type, pickup_point, result, reason, entitlement: str | None = None):
     c = Checkin(
         created_at=now_local().replace(tzinfo=None),
         service_date=service_date,
@@ -652,9 +645,9 @@ def _log_checkin(db, passenger_id, service_date, trip_type, pickup_point, result
         passenger_id=passenger_id,
         result=result,
         reason=reason,
+        entitlement=entitlement,
     )
     db.add(c)
-
 
 def _plan_allows(plan_type: PlanType, trip_type: TripType) -> bool:
     if plan_type in (PlanType.VIAJES_10, PlanType.VIAJES_20, PlanType.VIAJES_30, PlanType.VIAJES_40):
