@@ -97,7 +97,7 @@ def _ensure_pickup_point_enum_values() -> None:
         _ensure_enum_values(udt_checkins, values)
 
     # 2) Fallback por si information_schema no devuelve (raro, pero posible)
-    for enum_name in ["pickup_point_enum", "pickup_point"]:
+    for enum_name in ["pickup_point_enum"]:
         _ensure_enum_values(enum_name, values)
 
 
