@@ -100,6 +100,16 @@ def _ensure_pickup_point_enum_values() -> None:
     for enum_name in ["pickup_point_enum"]:
         _ensure_enum_values(enum_name, values)
 
+def _ensure_one_time_token_enum_values() -> None:
+    # Por si el TYPE no existe aún, este ALTER fallará; lo dejamos como best-effort.
+    _ensure_enum_values("one_time_token_status_enum", ["ACTIVE", "USED", "REVOKED"])
+
+def _ensure_checkins_entitlement_column() -> None:
+    stmts = [
+        "ALTER TABLE checkins ADD COLUMN IF NOT EXISTS entitlement varchar(20);"
+    ]
+    _exec_autocommit(stmts, "_ensure_checkins_entitlement_column failed")
+
 
 def _migrate_old_subscription_plan_values() -> None:
     """
@@ -133,6 +143,8 @@ def _migrate_old_subscription_plan_values() -> None:
 # Run at import time (API + Admin) - order matters
 _ensure_plan_enum_values()
 _ensure_pickup_point_enum_values()
+_ensure_one_time_token_enum_values()
+_ensure_checkins_entitlement_column()
 _migrate_old_subscription_plan_values()
 
 
