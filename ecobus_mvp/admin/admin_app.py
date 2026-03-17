@@ -79,31 +79,51 @@ def render_dashboard_dia():
                 "razon": c.reason,
                 "codigo": p.code if p else None,
                 "nombre": p.full_name if p else None,
+                "entitlement": c.entitlement or "MONTHLY",
             })
 
-    df = pd.DataFrame(data)
+df = pd.DataFrame(data)
 
-    if df.empty:
-        st.info("Sin check-ins para la fecha seleccionada.")
+if df.empty:
+    st.info("Sin check-ins para la fecha seleccionada.")
+else:
+    # Asegurar columna entitlement (por si algún registro viene sin ella)
+    if "entitlement" not in df.columns:
+        df["entitlement"] = "—"
+
+    # Métricas principales + desglose por tipo (Plan vs Pase Diario)
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    ok = (df["resultado"] == "OK").sum()
+    rej = (df["resultado"] == "REJECTED").sum()
+
+    monthly_ok = ((df["resultado"] == "OK") & (df["entitlement"] == "MONTHLY")).sum()
+    daily_ok = ((df["resultado"] == "OK") & (df["entitlement"] == "DAILY_PASS")).sum()
+
+    col1.metric("OK", int(ok))
+    col2.metric("OK (Plan)", int(monthly_ok))
+    col3.metric("OK (Pase diario)", int(daily_ok))
+    col4.metric("RECHAZADOS", int(rej))
+    col5.metric("TOTAL", int(len(df)))
+
+    st.dataframe(df, use_container_width=True)
+    download_df(df, f"checkins_{d.isoformat()}.csv")
+
+    st.markdown("#### Pases diarios (OK)")
+    df_daily_ok = df[(df["resultado"] == "OK") & (df["entitlement"] == "DAILY_PASS")]
+    if df_daily_ok.empty:
+        st.info("No hay check-ins OK con Pase Diario.")
     else:
-        col1, col2, col3 = st.columns(3)
-        ok = (df["resultado"] == "OK").sum()
-        rej = (df["resultado"] == "REJECTED").sum()
-        col1.metric("OK", int(ok))
-        col2.metric("RECHAZADOS", int(rej))
-        col3.metric("TOTAL", int(len(df)))
+        st.dataframe(df_daily_ok, use_container_width=True)
 
-        st.dataframe(df, use_container_width=True)
-        download_df(df, f"checkins_{d.isoformat()}.csv")
-
-        st.markdown("#### Rechazados por razón")
-        st.dataframe(
-            df[df["resultado"] == "REJECTED"]["razon"]
-              .value_counts()
-              .reset_index()
-              .rename(columns={"index": "razon", "razon": "conteo"}),
-            use_container_width=True
-        )
+    st.markdown("#### Rechazados por razón")
+    st.dataframe(
+        df[df["resultado"] == "REJECTED"]["razon"]
+          .value_counts()
+          .reset_index()
+          .rename(columns={"index": "razon", "razon": "conteo"}),
+        use_container_width=True
+    )
 
 
 def render_pasajeros():
@@ -530,21 +550,54 @@ def render_pase_diario():
         res_status = st.selectbox("Estado reserva", [rs.value for rs in ReservationStatus], key="dp_res")
         ok = st.form_submit_button("Crear")
 
-    if ok:
-        with get_db() as db:
-            p = db.execute(select(Passenger).where(Passenger.code == passenger_code)).scalar_one_or_none()
-            if not p:
-                st.error("No existe pasajero")
-            else:
-                dp = DailyPass(
+if ok:
+    png_bytes = None
+    qr_fname = None
+
+    with get_db() as db:
+        p = db.execute(select(Passenger).where(Passenger.code == passenger_code)).scalar_one_or_none()
+        if not p:
+            st.error("No existe pasajero")
+        else:
+            dp = DailyPass(
+                passenger_id=p.id,
+                service_date=d,
+                trip_type=TripType(trip),
+                payment_status=PaymentStatus(pay_status),
+                reservation_status=ReservationStatus(res_status),
+            )
+            db.add(dp)
+            db.flush()  # dp.id disponible
+
+            if PaymentStatus(pay_status) == PaymentStatus.PAGADO and ReservationStatus(res_status) == ReservationStatus.CONFIRMADO:
+                from app.models import OneTimeToken, OneTimeTokenStatus
+                from app.utils import generate_token
+                from app.main import _make_qr_png
+
+                token = generate_token()
+                ot = OneTimeToken(
                     passenger_id=p.id,
-                    service_date=d,
-                    trip_type=TripType(trip),
-                    payment_status=PaymentStatus(pay_status),
-                    reservation_status=ReservationStatus(res_status),
+                    daily_pass_id=dp.id,
+                    token=token,
+                    status=OneTimeTokenStatus.ACTIVE,
                 )
-                db.add(dp)
-        st.success("Solicitud creada")
+                db.add(ot)
+                db.flush()
+
+                qr_url = f"{settings.public_base_url.rstrip('/')}/ot/{token}"
+                png_bytes = _make_qr_png(qr_url)
+                qr_fname = f"QR_PASE_DIARIO_{passenger_code}_{d.isoformat()}_{trip}.png"
+
+    if png_bytes:
+        st.success("Pase diario creado (PAGADO+CONFIRMADO) + QR 1 uso generado.")
+        st.download_button(
+            label="Descargar QR Pase Diario (PNG)",
+            data=png_bytes,
+            file_name=qr_fname,
+            mime="image/png",
+        )
+    else:
+        st.success("Solicitud creada. Cuando esté PAGADO + CONFIRMADO, genera el QR.")
 
 def render_finanzas():
     st.subheader("Finanzas")
