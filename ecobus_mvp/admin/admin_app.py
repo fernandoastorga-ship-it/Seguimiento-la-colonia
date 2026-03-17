@@ -53,7 +53,7 @@ PLAN_PRICES = {
 # TABS (UI ordenada)
 # =========================
 
-tabs = st.tabs(["Dashboard día", "Pasajeros", "Planes mensuales", "Pase diario"])
+tabs = st.tabs(["Dashboard día", "Pasajeros", "Planes mensuales", "Pase diario", "Finanzas"])
 
 
 def render_dashboard_dia():
@@ -546,6 +546,228 @@ def render_pase_diario():
                 db.add(dp)
         st.success("Solicitud creada")
 
+def render_finanzas():
+    st.subheader("Finanzas")
+
+    PLAN_PRICES = {
+        "VIAJES_10": 18500,
+        "VIAJES_20": 35000,
+        "VIAJES_30": 49000,
+        "VIAJES_40": 60000,
+    }
+
+    st.markdown("### Período")
+    mode = st.radio(
+        "Tipo de reporte",
+        ["Mes calendario (por Subscription.month)", "Últimos 30 días (por activated_at)"],
+        horizontal=True,
+        key="fin_mode",
+    )
+
+    today = date.today()
+
+    if mode.startswith("Mes calendario"):
+        month = st.date_input(
+            "Mes a revisar (usar 1er día del mes)",
+            value=date(today.year, today.month, 1),
+            key="fin_month",
+        )
+        start_dt = datetime.combine(month, datetime.min.time())
+        # fin del mes
+        next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+        end_dt = datetime.combine(next_month, datetime.min.time())
+    else:
+        days = st.slider("Ventana (días)", 7, 60, 30, key="fin_days")
+        end_dt = datetime.combine(today + timedelta(days=1), datetime.min.time())
+        start_dt = end_dt - timedelta(days=days)
+        month = date(today.year, today.month, 1)  # para acciones por mes, si hace falta
+
+    st.caption(f"Rango: {start_dt.strftime('%Y-%m-%d')} → {end_dt.strftime('%Y-%m-%d')}")
+
+    st.markdown("---")
+    st.markdown("### KPIs del período")
+
+    with get_db() as db:
+        # Traemos subs + pasajero para cálculos en Python
+        if mode.startswith("Mes calendario"):
+            subs = db.execute(
+                select(Subscription, Passenger)
+                .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .where(Subscription.month == month)
+                .order_by(Passenger.code)
+            ).all()
+        else:
+            # últimos N días: por activated_at (si activated_at es None no entra)
+            subs = db.execute(
+                select(Subscription, Passenger)
+                .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .where(and_(Subscription.activated_at != None,
+                            Subscription.activated_at >= start_dt,
+                            Subscription.activated_at < end_dt))
+                .order_by(Subscription.activated_at.desc())
+            ).all()
+
+    rows = []
+    for s, p in subs:
+        plan = s.plan_type.value if s.plan_type else None
+        price = PLAN_PRICES.get(plan, 0)
+
+        paid = (s.payment_status == PaymentStatus.PAGADO)
+        status = s.payment_status.value if s.payment_status else None
+
+        activated_at = s.activated_at
+        next_due_dt = None
+        days_left = None
+        if activated_at:
+            next_due_dt = activated_at + timedelta(days=30)
+            days_left = (next_due_dt.date() - today).days
+
+        used_total = (s.rides_used_ida or 0) + (s.rides_used_vuelta or 0)
+        remaining = max(0, (s.rides_included or 0) - used_total)
+
+        rows.append({
+            "passenger_code": p.code,
+            "full_name": p.full_name,
+            "plan": plan,
+            "price": price,
+            "payment_status": status,
+            "activated_at": activated_at,
+            "next_due": next_due_dt,
+            "days_left": days_left,
+            "rides_included": s.rides_included,
+            "rides_used_total": used_total,
+            "rides_remaining": remaining,
+        })
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        st.info("Sin suscripciones para el período seleccionado.")
+        return
+
+    # KPIs
+    total_plans = len(df)
+    total_sold = int(df["price"].sum())
+
+    paid_df = df[df["payment_status"] == "PAGADO"]
+    pending_df = df[df["payment_status"] != "PAGADO"]
+
+    total_paid = int(paid_df["price"].sum())
+    total_pending = int(pending_df["price"].sum())
+    avg_ticket = int(total_sold / total_plans) if total_plans else 0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Planes (conteo)", str(total_plans))
+    k2.metric("Vendido (CLP)", f"${total_sold:,}".replace(",", "."))
+    k3.metric("Pagado (CLP)", f"${total_paid:,}".replace(",", "."))
+    k4.metric("Pendiente (CLP)", f"${total_pending:,}".replace(",", "."))
+
+    st.caption(f"Ticket promedio: ${avg_ticket:,} CLP".replace(",", "."))
+
+    st.markdown("---")
+    st.markdown("### Distribución de planes")
+    dist = df.groupby("plan", dropna=False).agg(
+        planes=("plan", "count"),
+        vendido=("price", "sum"),
+        pagado=("price", lambda x: int(df.loc[x.index][df.loc[x.index, "payment_status"] == "PAGADO"]["price"].sum())),
+    ).reset_index()
+
+    st.dataframe(dist, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### Renovaciones (activated_at + 30 días)")
+
+    horizon = st.slider("Mostrar vencimientos dentro de (días)", 1, 60, 14, key="fin_horizon")
+    renew_df = df[df["next_due"].notna()].copy()
+    renew_df["days_left"] = renew_df["days_left"].astype(int)
+
+    due_soon = renew_df[(renew_df["days_left"] <= horizon)]
+    due_soon = due_soon.sort_values("days_left")
+
+    colA, colB, colC = st.columns(3)
+    colA.metric(f"Vencen en ≤ {horizon} días", str(len(due_soon)))
+    colB.metric("Vencidos (≤ 0 días)", str(len(renew_df[renew_df["days_left"] <= 0])))
+    colC.metric("Pagados en lista", str(len(due_soon[due_soon["payment_status"] == "PAGADO"])))
+
+    if len(due_soon):
+        st.dataframe(
+            due_soon[[
+                "passenger_code", "full_name", "plan", "payment_status",
+                "activated_at", "next_due", "days_left", "rides_remaining"
+            ]],
+            use_container_width=True
+        )
+        download_df(due_soon, f"renovaciones_{today.isoformat()}.csv")
+    else:
+        st.info("No hay renovaciones próximas en el horizonte seleccionado.")
+
+    st.markdown("---")
+    st.markdown("### Ingresos diarios (Pagado)")
+
+    # gráfico simple por día usando activated_at
+    gdf = df[df["payment_status"] == "PAGADO"].copy()
+    gdf = gdf[gdf["activated_at"].notna()]
+    if not gdf.empty:
+        gdf["day"] = pd.to_datetime(gdf["activated_at"]).dt.date
+        by_day = gdf.groupby("day")["price"].sum().reset_index()
+        by_day = by_day.sort_values("day")
+        st.line_chart(by_day.set_index("day"))
+    else:
+        st.info("No hay activaciones pagadas en el período para graficar.")
+
+    st.markdown("---")
+    st.markdown("### Acciones (operación financiera)")
+
+    st.caption("Estas acciones editan la suscripción del pasajero para el mes seleccionado (Subscription.month).")
+
+    action_month = st.date_input(
+        "Mes objetivo (usar 1er día del mes)",
+        value=date(today.year, today.month, 1),
+        key="fin_action_month",
+    )
+
+    with st.form("fin_actions"):
+        passenger_code = st.text_input("Código pasajero (ej: ECO0001)", key="fin_pass_code").strip().upper()
+        new_rides = st.number_input("Ajustar rides_included (nuevo total)", min_value=0, value=20, step=1)
+        new_pay_status = st.selectbox("Estado de pago", [ps.value for ps in PaymentStatus], index=0)
+        touch_activated = st.checkbox("Actualizar activated_at a ahora (para iniciar vigencia 30 días)", value=False)
+        reason = st.text_area("Motivo / nota (obligatorio para auditoría)", key="fin_reason")
+        apply = st.form_submit_button("Aplicar cambios")
+
+    if apply:
+        if not passenger_code:
+            st.error("Falta código de pasajero.")
+        elif not reason.strip():
+            st.error("Debes escribir un motivo para el cambio (auditoría).")
+        else:
+            with get_db() as db:
+                p = db.execute(select(Passenger).where(Passenger.code == passenger_code)).scalar_one_or_none()
+                if not p:
+                    st.error("No existe pasajero con ese código.")
+                else:
+                    sub = db.execute(
+                        select(Subscription).where(
+                            and_(Subscription.passenger_id == p.id, Subscription.month == action_month)
+                        )
+                    ).scalar_one_or_none()
+
+                    if not sub:
+                        st.error("El pasajero no tiene plan creado para ese mes. Créalo en 'Planes mensuales'.")
+                    else:
+                        # Ajustes
+                        sub.rides_included = int(new_rides)
+                        sub.payment_status = PaymentStatus(new_pay_status)
+                        if touch_activated:
+                            sub.activated_at = now_local().replace(tzinfo=None)
+
+                        # auditoría simple en notes
+                        stamp = now_local().replace(tzinfo=None).strftime("%Y-%m-%d %H:%M")
+                        audit_line = f"[FIN {stamp}] rides_included={new_rides}, payment={new_pay_status}, touch_activated={touch_activated}. Motivo: {reason.strip()}"
+                        sub.notes = (sub.notes + "\n" + audit_line) if sub.notes else audit_line
+
+                        db.add(sub)
+
+                        st.success("Cambios aplicados.")
 
 with tabs[0]:
     render_dashboard_dia()
@@ -558,6 +780,9 @@ with tabs[2]:
 
 with tabs[3]:
     render_pase_diario()
+
+with tabs[4]:
+    render_finanzas()
 
 st.markdown("---")
 st.caption("Config: Render + Postgres recomendado. TZ y ventanas horarias desde variables de entorno.")
