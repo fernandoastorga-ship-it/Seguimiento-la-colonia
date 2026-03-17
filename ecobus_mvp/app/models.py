@@ -160,6 +160,8 @@ class Checkin(Base):
 
     result: Mapped[CheckinResult] = mapped_column(SAEnum(CheckinResult, name="checkin_result_enum"))
     reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    
+    entitlement: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     scanner_user: Mapped[str | None] = mapped_column(String(100), nullable=True)
     client_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -184,6 +186,30 @@ class QrToken(Base):
     valid_to: Mapped[datetime] = mapped_column(DateTime, index=True)
 
     passenger: Mapped[Passenger] = relationship(back_populates="tokens")
+
+class OneTimeTokenStatus(str, PyEnum):
+    ACTIVE = "ACTIVE"
+    USED = "USED"
+    REVOKED = "REVOKED"
+
+
+class OneTimeToken(Base):
+    __tablename__ = "one_time_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    passenger_id: Mapped[uuid.UUID] = mapped_column(_uuid_col(), ForeignKey("passengers.id"), index=True)
+    daily_pass_id: Mapped[int] = mapped_column(Integer, ForeignKey("daily_passes.id"), index=True)
+
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+
+    status: Mapped[OneTimeTokenStatus] = mapped_column(
+        SAEnum(OneTimeTokenStatus, name="one_time_token_status_enum"),
+        default=OneTimeTokenStatus.ACTIVE,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 class OneTimeTokenStatus(str, PyEnum):
     ACTIVE = "ACTIVE"
