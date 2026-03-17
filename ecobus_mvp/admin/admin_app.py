@@ -58,44 +58,44 @@ tabs = st.tabs(["Dashboard día", "Pasajeros", "Planes mensuales", "Pase diario"
 
 def render_dashboard_dia():
     st.subheader("Dashboard día")
+
     d = st.date_input("Fecha de servicio", value=date.today(), key="dash_date")
 
-with get_db() as db:
-    rows = db.execute(
-        select(Checkin, Passenger)
-        .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
-        .where(Checkin.service_date == d)
-        .order_by(desc(Checkin.created_at))
-    ).all()
+    with get_db() as db:
+        rows = db.execute(
+            select(Checkin, Passenger)
+            .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
+            .where(Checkin.service_date == d)
+            .order_by(desc(Checkin.created_at))
+        ).all()
 
-data = []  # <-- ESTA LÍNEA ES LA CLAVE
-for c, p in rows:
-    data.append({
-        "hora": c.created_at.strftime("%H:%M:%S") if c.created_at else None,
-        "fecha": c.service_date.isoformat() if c.service_date else None,
-        "trip_type": c.trip_type.value if c.trip_type else None,
-        "pickup_point": c.pickup_point.value if c.pickup_point else None,
-        "resultado": c.result.value if c.result else None,
-        "razon": c.reason,
-        "entitlement": getattr(c, "entitlement", None) or "—",
-        "codigo": p.code if p else None,
-        "nombre": p.full_name if p else None,
-    })
+    data = []
+    for c, p in rows:
+        data.append({
+            "hora": c.created_at.strftime("%H:%M:%S") if c.created_at else None,
+            "fecha": c.service_date.isoformat() if c.service_date else None,
+            "trip_type": c.trip_type.value if c.trip_type else None,
+            "pickup_point": c.pickup_point.value if c.pickup_point else None,
+            "resultado": c.result.value if c.result else None,
+            "razon": c.reason,
+            "entitlement": getattr(c, "entitlement", None) or "—",
+            "codigo": p.code if p else None,
+            "nombre": p.full_name if p else None,
+        })
 
-df = pd.DataFrame(data)
-if df.empty:
-    st.info("Sin check-ins para la fecha seleccionada.")
-else:
-    # Asegurar columna entitlement (por si algún registro viene sin ella)
+    df = pd.DataFrame(data)
+
+    if df.empty:
+        st.info("Sin check-ins para la fecha seleccionada.")
+        return
+
     if "entitlement" not in df.columns:
         df["entitlement"] = "—"
 
-    # Métricas principales + desglose por tipo (Plan vs Pase Diario)
     col1, col2, col3, col4, col5 = st.columns(5)
 
     ok = (df["resultado"] == "OK").sum()
     rej = (df["resultado"] == "REJECTED").sum()
-
     monthly_ok = ((df["resultado"] == "OK") & (df["entitlement"] == "MONTHLY")).sum()
     daily_ok = ((df["resultado"] == "OK") & (df["entitlement"] == "DAILY_PASS")).sum()
 
@@ -123,7 +123,6 @@ else:
           .rename(columns={"index": "razon", "razon": "conteo"}),
         use_container_width=True
     )
-
 
 def render_pasajeros():
     st.subheader("Pasajeros")
