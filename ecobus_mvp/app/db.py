@@ -110,6 +110,15 @@ def _ensure_checkins_entitlement_column() -> None:
     ]
     _exec_autocommit(stmts, "_ensure_checkins_entitlement_column failed")
 
+def _ensure_one_time_tokens_schema() -> None:
+    stmts = [
+        # Si la tabla ya existe, agrega la columna faltante
+        "ALTER TABLE one_time_tokens ADD COLUMN IF NOT EXISTS daily_pass_id integer;",
+        # Índice (opcional pero recomendado)
+        "CREATE INDEX IF NOT EXISTS ix_one_time_tokens_daily_pass_id ON one_time_tokens(daily_pass_id);",
+    ]
+    _exec_autocommit(stmts, "_ensure_one_time_tokens_schema failed")
+
 
 def _migrate_old_subscription_plan_values() -> None:
     """
@@ -146,6 +155,7 @@ _ensure_pickup_point_enum_values()
 _ensure_one_time_token_enum_values()
 _ensure_checkins_entitlement_column()
 _migrate_old_subscription_plan_values()
+_ensure_one_time_tokens_schema()
 
 
 @contextmanager
