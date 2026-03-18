@@ -202,6 +202,9 @@ class OneTimeToken(Base):
     daily_pass_id: Mapped[int] = mapped_column(Integer, ForeignKey("daily_passes.id"), index=True)
 
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    
+    service_date: Mapped[date] = mapped_column(Date, index=True)
+    trip_type: Mapped[TripType] = mapped_column(SAEnum(TripType, name="trip_type_enum"), index=True)
 
     status: Mapped[OneTimeTokenStatus] = mapped_column(
         SAEnum(OneTimeTokenStatus, name="one_time_token_status_enum"),
