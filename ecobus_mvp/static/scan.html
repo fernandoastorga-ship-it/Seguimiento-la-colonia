@@ -43,8 +43,7 @@
       <button id="stopBtn" disabled>Detener</button>
     </div>
     <video id="video" playsinline muted style="width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;"></video>
-    <video id="video" playsinline muted autoplay
-  style="width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;"></video>
+    <video id="video" playsinline muted autoplay style="width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;"></video>
     <div id="status" class="status"></div>
     <div class="muted" style="margin-top:10px;">Tip: el QR del pasajero suele ser una URL tipo <b>/q/TOKEN</b>. El sistema extrae el token automáticamente.</div>
   </div>
@@ -118,7 +117,7 @@ if (data.result === 'OK'){
     }
   }
 
- async function startCamera(){
+async function startCamera(){
   if (!pickupPoint.value){
     showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
     return;
@@ -129,7 +128,13 @@ if (data.result === 'OK'){
   stopBtn.disabled = false;
 
   try{
-    // iOS-friendly constraints + fallback
+    // Si ya había un stream previo, ciérralo (evita cámara "ocupada")
+    if (stream){
+      try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      stream = null;
+    }
+
+    // 1) Intento: environment ideal
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -139,18 +144,55 @@ if (data.result === 'OK'){
         },
         audio: false
       });
-    } catch (e){
-        console.error(e);
-
-        const ua = navigator.userAgent || "";
-        const secure = window.isSecureContext ? "YES" : "NO";
-        const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-
-        const msg = `${e && e.name ? e.name : "Error"}: ${e && e.message ? e.message : "sin detalle"} | secure=${secure} | media=${hasMedia}`;
-        showResult(false, 'ERROR', msg);
-
-        stopCamera();
+    } catch (e1) {
+      // 2) Fallback: sin facingMode (iOS a veces falla con constraints)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+      } catch (e2) {
+        // 3) Último fallback: lo que sea
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
+    }
+
+    // Si por alguna razón sigue null, aborta limpio
+    if (!stream){
+      showResult(false, 'ERROR', 'No se obtuvo stream de cámara');
+      stopCamera();
+      return;
+    }
+
+    // iOS: asegurar inline + autoplay
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "true");
+    video.muted = true;
+
+    // iOS: a veces play() falla si no hay stream listo
+    await video.play();
+    running = true;
+
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({ formats: ["qr_code"] });
+      scanLoopBarcodeDetector(detector);
+    } else {
+      const ZX = window.ZXingBrowser || window.ZXing;
+      if (!ZX) throw new Error("ZXing no cargó");
+      zxingReader = new ZX.BrowserQRCodeReader();
+      scanLoopZXing();
+    }
+  } catch (e){
+    console.error(e);
+
+    const secure = window.isSecureContext ? "YES" : "NO";
+    const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const msg = `${e?.name || "Error"}: ${e?.message || "sin detalle"} | secure=${secure} | media=${hasMedia}`;
+
+    showResult(false, 'ERROR', msg);
+    stopCamera();
+  }
+}
 
     video.srcObject = stream;
     video.setAttribute("playsinline", "true");
@@ -238,6 +280,20 @@ if (data.result === 'OK'){
   startBtn.addEventListener('click', startCamera);
   stopBtn.addEventListener('click', stopCamera);
   window.addEventListener('beforeunload', stopCamera);
+(function(){
+  const ua = (navigator.userAgent || "").toLowerCase();
+  const isInApp =
+    ua.includes("instagram") ||
+    ua.includes("fbav") || ua.includes("fban") ||
+    ua.includes("whatsapp") ||
+    ua.includes("gsa") ||          // Google Search App
+    ua.includes("gmail") ||
+    ua.includes("linkedin");
+
+  if (isInApp) {
+    showResult(false, "ATENCIÓN", "iPhone: abre en Safari (in-app browser bloquea cámara)");
+  }
+})();
 </script>
 </body>
 </html>
