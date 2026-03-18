@@ -30,4 +30,225 @@
     <div class="row">
       <label>
         <div class="muted">Tipo de viaje</div>
-        <select id="
+        <select id="tripType">
+          <option value="IDA" selected>IDA</option>
+          <option value="VUELTA">VUELTA</option>
+        </select>
+      </label>
+
+      <label>
+        <div class="muted">Punto de subida</div>
+        <select id="pickupPoint" required>
+          <option value="" selected disabled>Selecciona…</option>
+          <option value="LA_COLONIA">La Colonia</option>
+          <option value="CRUCE_MALLOCO">Cruce Malloco</option>
+          <option value="LA_MONEDA">La Moneda</option>
+        </select>
+      </label>
+
+      <button id="startBtn" type="button">Iniciar cámara</button>
+      <button id="stopBtn" type="button" disabled>Detener</button>
+    </div>
+
+    <video id="video" playsinline muted autoplay></video>
+
+    <div id="status" class="status"></div>
+    <div class="muted" style="margin-top:10px;">
+      Tip: el QR suele ser URL <b>/q/TOKEN</b> o <b>/ot/TOKEN</b>. Se extrae el token automático.
+    </div>
+  </div>
+
+<script>
+(() => {
+  const elStatus = document.getElementById('status');
+  const tripType = document.getElementById('tripType');
+  const pickupPoint = document.getElementById('pickupPoint');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const video = document.getElementById('video');
+
+  function showResult(ok, title, subtitle){
+    elStatus.style.display = 'block';
+    elStatus.className = 'status ' + (ok ? 'ok' : 'bad');
+    elStatus.innerHTML = `<div>${title}</div><div class="big">${subtitle || ''}</div>`;
+  }
+  function clearResult(){ elStatus.style.display='none'; elStatus.textContent=''; }
+
+  // Debug visible si ocurre error JS
+  window.addEventListener('error', (ev) => {
+    showResult(false, 'JS ERROR', `${ev.message}\n${ev.filename}:${ev.lineno}:${ev.colno}`);
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    showResult(false, 'PROMISE ERROR', String(ev.reason || ev));
+  });
+
+  let stream = null;
+  let running = false;
+  let busy = false;
+  let lastToken = null;
+  let zxingReader = null;
+
+  function extractToken(text){
+    try{
+      const u = new URL(text);
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length >= 2 && (parts[0] === 'q' || parts[0] === 'ot')) return parts[1];
+      return parts[parts.length-1];
+    }catch(e){
+      return (text || '').trim();
+    }
+  }
+
+  async function validateScanned(raw){
+    if (busy) return;
+    if (!pickupPoint.value){
+      showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
+      return;
+    }
+    busy = true;
+
+    const token = extractToken(raw);
+    const params = new URLSearchParams({
+      token,
+      trip_type: tripType.value,
+      pickup_point: pickupPoint.value
+    });
+
+    try{
+      const res = await fetch(`/api/validate?${params.toString()}`, { cache: "no-store" });
+      const data = await res.json();
+
+      if (data.result === 'OK'){
+        const planTxt = data.plan ? ` - ${data.plan}` : '';
+        const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null)
+          ? ` | Restan: ${data.rides_remaining}` : '';
+        showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}`);
+        setTimeout(clearResult, 2500);
+      } else {
+        const reason = data.reason ? ` - ${data.reason}` : '';
+        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
+        setTimeout(clearResult, 3500);
+      }
+    } catch (e){
+      showResult(false, 'ERROR', `No se pudo validar\n${e?.name || ''} ${e?.message || ''}`);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function startCamera(){
+    clearResult();
+
+    if (!pickupPoint.value){
+      showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
+      return;
+    }
+    if (running) return;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      showResult(false, 'ERROR', 'Este navegador no soporta cámara (getUserMedia).');
+      return;
+    }
+
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    try{
+      // cierra stream previo
+      if (stream){
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+        stream = null;
+      }
+
+      // 3 intentos (iOS-friendly)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+      } catch (e1) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+          });
+        } catch (e2) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      }
+
+      if (!stream) throw new Error("No se obtuvo stream de cámara");
+
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      video.muted = true;
+      await video.play();
+
+      running = true;
+      lastToken = null;
+
+      const ZX = window.ZXingBrowser || window.ZXing;
+      if (!ZX) throw new Error("ZXing no cargó");
+
+      zxingReader = new ZX.BrowserQRCodeReader();
+
+      // Listar cámaras y preferir trasera si existe
+      let deviceId = null;
+      try {
+        const devices = await ZX.BrowserCodeReader.listVideoInputDevices();
+        if (devices && devices.length){
+          const back = devices.find(d => /back|rear|environment/i.test(d.label));
+          deviceId = (back || devices[0]).deviceId;
+        }
+      } catch {}
+
+      // ✅ Método compatible iPhone/Android
+      await zxingReader.decodeFromVideoDevice(deviceId, video, async (result, err) => {
+        if (!running) return;
+        if (result){
+          const raw = (result.getText ? result.getText() : String(result)).trim();
+          if (!raw) return;
+
+          const tokenMaybe = extractToken(raw);
+          if (tokenMaybe && tokenMaybe !== lastToken){
+            lastToken = tokenMaybe;
+            await validateScanned(raw);
+          }
+        }
+      });
+
+    } catch (e){
+      const secure = window.isSecureContext ? "YES" : "NO";
+      showResult(false, 'ERROR', `${e?.name || "Error"}: ${e?.message || "sin detalle"} | secure=${secure}`);
+      stopCamera();
+    }
+  }
+
+  function stopCamera(){
+    running = false;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+
+    // detener ZXing
+    if (zxingReader){
+      try { zxingReader.reset(); } catch {}
+      zxingReader = null;
+    }
+
+    // detener stream
+    if (stream){
+      try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      stream = null;
+    }
+
+    video.srcObject = null;
+  }
+
+  startBtn.addEventListener('click', () => startCamera());
+  stopBtn.addEventListener('click', () => stopCamera());
+  window.addEventListener('beforeunload', stopCamera);
+})();
+</script>
+
+</body>
+</html>
