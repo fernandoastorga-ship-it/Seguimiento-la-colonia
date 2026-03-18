@@ -43,6 +43,8 @@
       <button id="stopBtn" disabled>Detener</button>
     </div>
     <video id="video" playsinline muted style="width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;"></video>
+    <video id="video" playsinline muted autoplay
+  style="width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;"></video>
     <div id="status" class="status"></div>
     <div class="muted" style="margin-top:10px;">Tip: el QR del pasajero suele ser una URL tipo <b>/q/TOKEN</b>. El sistema extrae el token automáticamente.</div>
   </div>
@@ -116,39 +118,53 @@ if (data.result === 'OK'){
     }
   }
 
-  async function startCamera(){
-    if (!pickupPoint.value){
-      showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
-      return;
-    }
-    if (running) return;
+ async function startCamera(){
+  if (!pickupPoint.value){
+    showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
+    return;
+  }
+  if (running) return;
 
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
 
-    try{
+  try{
+    // iOS-friendly constraints + fallback
+    try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
       });
-
-      video.srcObject = stream;
-      await video.play();
-      running = true;
-
-      if ("BarcodeDetector" in window) {
-        const detector = new BarcodeDetector({ formats: ["qr_code"] });
-        scanLoopBarcodeDetector(detector);
-      } else {
-        zxingReader = new ZXingBrowser.BrowserQRCodeReader();
-        scanLoopZXing();
-      }
-    } catch (e){
-      console.error(e);
-      showResult(false, 'ERROR', 'No se pudo iniciar cámara');
-      stopCamera();
+    } catch (e) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     }
+
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "true");
+    video.muted = true;
+
+    await video.play();
+    running = true;
+
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({ formats: ["qr_code"] });
+      scanLoopBarcodeDetector(detector);
+    } else {
+      const ZX = window.ZXingBrowser || window.ZXing;
+      if (!ZX) throw new Error("ZXing no cargó");
+      zxingReader = new ZX.BrowserQRCodeReader();
+      scanLoopZXing();
+    }
+  } catch (e){
+    console.error(e);
+    showResult(false, 'ERROR', 'No se pudo iniciar cámara (iPhone)');
+    stopCamera();
   }
+}
 
   function stopCamera(){
     running = false;
