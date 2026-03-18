@@ -514,6 +514,7 @@ def render_pase_diario():
     d = st.date_input("Fecha", value=date.today(), key="dp_date")
     trip = st.selectbox("Tipo de viaje", [t.value for t in TripType], key="dp_trip")
 
+    # Tabla de pases del día
     with get_db() as db:
         rows = db.execute(
             select(DailyPass, Passenger)
@@ -548,15 +549,17 @@ def render_pase_diario():
         res_status = st.selectbox("Estado reserva", [rs.value for rs in ReservationStatus], key="dp_res")
         ok = st.form_submit_button("Crear")
 
-if ok:
-    png_bytes = None
-    qr_fname = None
+    # ✅ ESTE BLOQUE DEBE ESTAR DENTRO DE LA FUNCIÓN
+    if ok:
+        png_bytes = None
+        qr_fname = None
 
-    with get_db() as db:
-        p = db.execute(select(Passenger).where(Passenger.code == passenger_code)).scalar_one_or_none()
-        if not p:
-            st.error("No existe pasajero")
-        else:
+        with get_db() as db:
+            p = db.execute(select(Passenger).where(Passenger.code == passenger_code)).scalar_one_or_none()
+            if not p:
+                st.error("No existe pasajero")
+                return
+
             dp = DailyPass(
                 passenger_id=p.id,
                 service_date=d,
@@ -567,10 +570,10 @@ if ok:
             db.add(dp)
             db.flush()  # dp.id disponible
 
+            # Generar QR 1-uso SOLO si ya está pagado + confirmado
             if PaymentStatus(pay_status) == PaymentStatus.PAGADO and ReservationStatus(res_status) == ReservationStatus.CONFIRMADO:
                 from app.models import OneTimeToken, OneTimeTokenStatus
                 from app.utils import generate_token
-                from app.main import _make_qr_png
 
                 token = generate_token()
                 ot = OneTimeToken(
@@ -586,16 +589,17 @@ if ok:
                 png_bytes = _make_qr_png(qr_url)
                 qr_fname = f"QR_PASE_DIARIO_{passenger_code}_{d.isoformat()}_{trip}.png"
 
-    if png_bytes:
-        st.success("Pase diario creado (PAGADO+CONFIRMADO) + QR 1 uso generado.")
-        st.download_button(
-            label="Descargar QR Pase Diario (PNG)",
-            data=png_bytes,
-            file_name=qr_fname,
-            mime="image/png",
-        )
-    else:
-        st.success("Solicitud creada. Cuando esté PAGADO + CONFIRMADO, genera el QR.")
+        if png_bytes:
+            st.success("Pase diario creado (PAGADO+CONFIRMADO) + QR 1 uso generado.")
+            st.download_button(
+                label="Descargar QR Pase Diario (PNG)",
+                data=png_bytes,
+                file_name=qr_fname,
+                mime="image/png",
+            )
+            st.caption(f"Link QR: {settings.public_base_url.rstrip('/')}/ot/{token}")
+        else:
+            st.success("Solicitud creada. Cuando esté PAGADO + CONFIRMADO, genera el QR.")
 
 def render_finanzas():
     st.subheader("Finanzas")
