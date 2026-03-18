@@ -139,9 +139,18 @@ if (data.result === 'OK'){
         },
         audio: false
       });
-    } catch (e) {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    }
+    } catch (e){
+        console.error(e);
+
+        const ua = navigator.userAgent || "";
+        const secure = window.isSecureContext ? "YES" : "NO";
+        const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
+        const msg = `${e && e.name ? e.name : "Error"}: ${e && e.message ? e.message : "sin detalle"} | secure=${secure} | media=${hasMedia}`;
+        showResult(false, 'ERROR', msg);
+
+        stopCamera();
+      }
 
     video.srcObject = stream;
     video.setAttribute("playsinline", "true");
