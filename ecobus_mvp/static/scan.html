@@ -194,6 +194,36 @@ async function startCamera(){
   }
 }
 
+    // iOS: asegurar inline + autoplay
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "true");
+    video.muted = true;
+
+    // iOS: a veces play() falla si no hay stream listo
+    await video.play();
+    running = true;
+
+    if ("BarcodeDetector" in window) {
+      const detector = new BarcodeDetector({ formats: ["qr_code"] });
+      scanLoopBarcodeDetector(detector);
+    } else {
+      const ZX = window.ZXingBrowser || window.ZXing;
+      if (!ZX) throw new Error("ZXing no cargó");
+      zxingReader = new ZX.BrowserQRCodeReader();
+      scanLoopZXing();
+    }
+  } catch (e){
+    console.error(e);
+
+    const secure = window.isSecureContext ? "YES" : "NO";
+    const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const msg = `${e?.name || "Error"}: ${e?.message || "sin detalle"} | secure=${secure} | media=${hasMedia}`;
+
+    showResult(false, 'ERROR', msg);
+    stopCamera();
+  }
+}
+
     video.srcObject = stream;
     video.setAttribute("playsinline", "true");
     video.muted = true;
