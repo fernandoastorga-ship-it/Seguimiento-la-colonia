@@ -580,6 +580,8 @@ def render_pase_diario():
                     passenger_id=p.id,
                     daily_pass_id=dp.id,
                     token=token,
+                    service_date=d,
+                    trip_type=TripType(trip),
                     status=OneTimeTokenStatus.ACTIVE,
                 )
                 db.add(ot)
