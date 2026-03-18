@@ -2,22 +2,23 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Ecobus Scanner</title>
-<script src="https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js"></script>
   <style>
     :root{--ok:#0a7a2f;--bad:#b00020;}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0; padding:16px; background:#0b0f14; color:#fff;}
     .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
     select, button{font-size:18px; padding:10px 12px; border-radius:12px; border:1px solid #2a3642; background:#101824; color:#fff;}
     button{cursor:pointer;}
-    #reader{width:100%; max-width:560px; margin-top:12px; border-radius:16px; overflow:hidden;}
+    button:disabled{opacity:.5; cursor:not-allowed;}
     .card{background:#101824; border:1px solid #2a3642; border-radius:16px; padding:14px;}
-    .status{margin-top:12px; padding:16px; border-radius:16px; font-size:20px; font-weight:700; display:none;}
+    .status{margin-top:12px; padding:16px; border-radius:16px; font-size:16px; font-weight:700; display:none; white-space:pre-wrap;}
     .status.ok{background:rgba(10,122,47,.25); border:1px solid rgba(10,122,47,.8);}
     .status.bad{background:rgba(176,0,32,.25); border:1px solid rgba(176,0,32,.8);}
     .muted{opacity:.8; font-size:14px;}
-    .big{font-size:22px; margin-top:6px;}
+    .big{font-size:18px; margin-top:6px; font-weight:600;}
+    video{width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;}
   </style>
 </head>
 <body>
@@ -30,6 +31,7 @@
           <option value="VUELTA">VUELTA</option>
         </select>
       </label>
+
       <label>
         <div class="muted">Punto de subida</div>
         <select id="pickupPoint" required>
@@ -39,16 +41,24 @@
           <option value="LA_MONEDA">La Moneda</option>
         </select>
       </label>
-      <button id="startBtn">Iniciar cámara</button>
-      <button id="stopBtn" disabled>Detener</button>
+
+      <button id="startBtn" type="button">Iniciar cámara</button>
+      <button id="stopBtn" type="button" disabled>Detener</button>
     </div>
-    <video id="video" playsinline muted style="width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;"></video>
-    <video id="video" playsinline muted autoplay style="width:100%; max-width:560px; margin-top:12px; border-radius:16px; background:#000;"></video>
+
+    <video id="video" playsinline muted autoplay></video>
+
     <div id="status" class="status"></div>
-    <div class="muted" style="margin-top:10px;">Tip: el QR del pasajero suele ser una URL tipo <b>/q/TOKEN</b>. El sistema extrae el token automáticamente.</div>
+    <div class="muted" style="margin-top:10px;">
+      Tip: el QR del pasajero suele ser una URL tipo <b>/q/TOKEN</b> o <b>/ot/TOKEN</b>.
+    </div>
   </div>
 
 <script>
+(function(){
+  // -----------------------------
+  // Helpers UI + Debug
+  // -----------------------------
   const elStatus = document.getElementById('status');
   const tripType = document.getElementById('tripType');
   const pickupPoint = document.getElementById('pickupPoint');
@@ -56,27 +66,53 @@
   const stopBtn = document.getElementById('stopBtn');
   const video = document.getElementById('video');
 
+  function showResult(ok, title, subtitle){
+    elStatus.style.display = 'block';
+    elStatus.className = 'status ' + (ok ? 'ok' : 'bad');
+    elStatus.innerHTML = `<div>${title}</div><div class="big">${subtitle || ''}</div>`;
+  }
+  function clearResult(){ elStatus.style.display='none'; elStatus.textContent=''; }
+
+  // Mostrar cualquier error JS “silencioso” en pantalla
+  window.addEventListener('error', (ev) => {
+    showResult(false, 'JS ERROR', `${ev.message}\n${ev.filename}:${ev.lineno}:${ev.colno}`);
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    showResult(false, 'PROMISE ERROR', String(ev.reason || ev));
+  });
+
+  // Detectar navegador embebido (muy común en iPhone: WhatsApp/IG/FB)
+  (function(){
+    const ua = (navigator.userAgent || "").toLowerCase();
+    const isInApp =
+      ua.includes("instagram") ||
+      ua.includes("fbav") || ua.includes("fban") ||
+      ua.includes("whatsapp") ||
+      ua.includes("gsa") ||
+      ua.includes("linkedin");
+    if (isInApp) {
+      showResult(false, "ATENCIÓN", "Abre en Safari/Chrome (navegador embebido puede bloquear la cámara).");
+    }
+  })();
+
+  // -----------------------------
+  // Scanner State
+  // -----------------------------
   let stream = null;
   let running = false;
   let busy = false;
   let lastToken = null;
   let zxingReader = null;
 
-  function showResult(ok, title, subtitle){
-    elStatus.style.display = 'block';
-    elStatus.className = 'status ' + (ok ? 'ok' : 'bad');
-    elStatus.innerHTML = `<div>${title}</div><div class='big'>${subtitle || ''}</div>`;
-    setTimeout(()=>{ elStatus.style.display='none'; }, 2500);
-  }
-
   function extractToken(text){
     try{
       const u = new URL(text);
       const parts = u.pathname.split('/').filter(Boolean);
-      if (parts.length >= 2 && parts[0] === 'q') return parts[1];
+      // /q/<token> o /ot/<token>
+      if (parts.length >= 2 && (parts[0] === 'q' || parts[0] === 'ot')) return parts[1];
       return parts[parts.length-1];
     }catch(e){
-      return text.trim();
+      return (text || '').trim();
     }
   }
 
@@ -96,156 +132,113 @@
     });
 
     try{
-      const res = await fetch(`/api/validate?${params.toString()}`);
+      const res = await fetch(`/api/validate?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
 
-if (data.result === 'OK'){
-  const planTxt = data.plan ? ` - ${data.plan}` : '';
-  const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null) ? ` | Restan: ${data.rides_remaining}` : '';
-  const msgTxt = data.message ? ` | ${data.message}` : '';
-  showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}${msgTxt}`);
-} else {
-  const reason = data.reason ? ` - ${data.reason}` : '';
-  const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null) ? ` | Restan: ${data.rides_remaining}` : '';
-  const msgTxt = data.message ? ` | ${data.message}` : '';
-  showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}${remTxt}${msgTxt}`);
-}
+      if (data.result === 'OK'){
+        const planTxt = data.plan ? ` - ${data.plan}` : '';
+        const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null) ? ` | Restan: ${data.rides_remaining}` : '';
+        showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}`);
+        setTimeout(clearResult, 2500);
+      } else {
+        const reason = data.reason ? ` - ${data.reason}` : '';
+        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
+        setTimeout(clearResult, 3500);
+      }
     } catch (e){
-      showResult(false, 'ERROR', 'No se pudo validar');
+      showResult(false, 'ERROR', `No se pudo validar\n${e?.name || ''} ${e?.message || ''}`);
     } finally {
       busy = false;
     }
   }
 
-async function startCamera(){
-  if (!pickupPoint.value){
-    showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
-    return;
-  }
-  if (running) return;
+  // -----------------------------
+  // Camera control
+  // -----------------------------
+  async function startCamera(){
+    clearResult();
 
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
-
-  try{
-    // Si ya había un stream previo, ciérralo (evita cámara "ocupada")
-    if (stream){
-      try { stream.getTracks().forEach(t => t.stop()); } catch {}
-      stream = null;
+    if (!pickupPoint.value){
+      showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
+      return;
     }
+    if (running) return;
 
-    // 1) Intento: environment ideal
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
-    } catch (e1) {
-      // 2) Fallback: sin facingMode (iOS a veces falla con constraints)
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false
-        });
-      } catch (e2) {
-        // 3) Último fallback: lo que sea
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      }
-    }
-
-    // Si por alguna razón sigue null, aborta limpio
-    if (!stream){
-      showResult(false, 'ERROR', 'No se obtuvo stream de cámara');
-      stopCamera();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      showResult(false, 'ERROR', 'Este navegador no soporta cámara (getUserMedia).');
       return;
     }
 
-    // iOS: asegurar inline + autoplay
-    video.srcObject = stream;
-    video.setAttribute("playsinline", "true");
-    video.muted = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
 
-    // iOS: a veces play() falla si no hay stream listo
-    await video.play();
-    running = true;
+    try{
+      // Cierra stream previo si existía
+      if (stream){
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+        stream = null;
+      }
 
-    if ("BarcodeDetector" in window) {
-      const detector = new BarcodeDetector({ formats: ["qr_code"] });
-      scanLoopBarcodeDetector(detector);
-    } else {
+      // 3 intentos (iOS-friendly)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      } catch (e1) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+          });
+        } catch (e2) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      }
+
+      if (!stream){
+        throw new Error("No se obtuvo stream de cámara");
+      }
+
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      video.muted = true;
+      await video.play();
+
+      running = true;
+      lastToken = null;
+
       const ZX = window.ZXingBrowser || window.ZXing;
-      if (!ZX) throw new Error("ZXing no cargó");
+      if (!ZX) throw new Error("ZXing no cargó (CDN bloqueado?)");
+
       zxingReader = new ZX.BrowserQRCodeReader();
-      scanLoopZXing();
+
+      // Decodificación continua
+      await zxingReader.decodeFromVideoElementContinuously(video, async (result, err) => {
+        if (!running) return;
+        if (result){
+          const raw = (result.getText ? result.getText() : String(result)).trim();
+          if (!raw) return;
+
+          const tokenMaybe = extractToken(raw);
+          if (tokenMaybe && tokenMaybe !== lastToken){
+            lastToken = tokenMaybe;
+            await validateScanned(raw);
+          }
+        }
+      });
+
+    } catch (e){
+      const secure = window.isSecureContext ? "YES" : "NO";
+      const msg = `${e?.name || "Error"}: ${e?.message || "sin detalle"} | secure=${secure}`;
+      showResult(false, 'ERROR', msg);
+      stopCamera();
     }
-  } catch (e){
-    console.error(e);
-
-    const secure = window.isSecureContext ? "YES" : "NO";
-    const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    const msg = `${e?.name || "Error"}: ${e?.message || "sin detalle"} | secure=${secure} | media=${hasMedia}`;
-
-    showResult(false, 'ERROR', msg);
-    stopCamera();
   }
-}
-
-    // iOS: asegurar inline + autoplay
-    video.srcObject = stream;
-    video.setAttribute("playsinline", "true");
-    video.muted = true;
-
-    // iOS: a veces play() falla si no hay stream listo
-    await video.play();
-    running = true;
-
-    if ("BarcodeDetector" in window) {
-      const detector = new BarcodeDetector({ formats: ["qr_code"] });
-      scanLoopBarcodeDetector(detector);
-    } else {
-      const ZX = window.ZXingBrowser || window.ZXing;
-      if (!ZX) throw new Error("ZXing no cargó");
-      zxingReader = new ZX.BrowserQRCodeReader();
-      scanLoopZXing();
-    }
-  } catch (e){
-    console.error(e);
-
-    const secure = window.isSecureContext ? "YES" : "NO";
-    const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    const msg = `${e?.name || "Error"}: ${e?.message || "sin detalle"} | secure=${secure} | media=${hasMedia}`;
-
-    showResult(false, 'ERROR', msg);
-    stopCamera();
-  }
-}
-
-    video.srcObject = stream;
-    video.setAttribute("playsinline", "true");
-    video.muted = true;
-
-    await video.play();
-    running = true;
-
-    if ("BarcodeDetector" in window) {
-      const detector = new BarcodeDetector({ formats: ["qr_code"] });
-      scanLoopBarcodeDetector(detector);
-    } else {
-      const ZX = window.ZXingBrowser || window.ZXing;
-      if (!ZX) throw new Error("ZXing no cargó");
-      zxingReader = new ZX.BrowserQRCodeReader();
-      scanLoopZXing();
-    }
-  } catch (e){
-    console.error(e);
-    showResult(false, 'ERROR', 'No se pudo iniciar cámara (iPhone)');
-    stopCamera();
-  }
-}
 
   function stopCamera(){
     running = false;
@@ -258,71 +251,17 @@ async function startCamera(){
     }
 
     if (stream){
-      stream.getTracks().forEach(t => t.stop());
+      try { stream.getTracks().forEach(t => t.stop()); } catch {}
       stream = null;
     }
+
     video.srcObject = null;
   }
 
-  function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-
-  async function scanLoopBarcodeDetector(detector){
-    while(running){
-      try{
-        if (video.readyState < 2) { await sleep(80); continue; }
-        const codes = await detector.detect(video);
-        if (codes && codes.length){
-          const raw = (codes[0].rawValue || "").trim();
-          if (raw){
-            const tokenMaybe = extractToken(raw);
-            if (tokenMaybe && tokenMaybe !== lastToken){
-              lastToken = tokenMaybe;
-              await validateScanned(raw);
-            }
-          }
-        }
-      } catch (e){
-        console.error(e);
-      }
-      await sleep(120);
-    }
-  }
-
-  async function scanLoopZXing(){
-    try{
-      await zxingReader.decodeFromVideoElementContinuously(video, async (result) => {
-        if (!running) return;
-        if (result){
-          const raw = (result.getText ? result.getText() : String(result)).trim();
-          if (!raw) return;
-          const tokenMaybe = extractToken(raw);
-          if (tokenMaybe && tokenMaybe !== lastToken){
-            lastToken = tokenMaybe;
-            await validateScanned(raw);
-          }
-        }
-      });
-    } catch (e){
-      console.error(e);
-    }
-  }
-
-  startBtn.addEventListener('click', startCamera);
-  stopBtn.addEventListener('click', stopCamera);
+  // Conectar botones sí o sí
+  startBtn.addEventListener('click', () => startCamera());
+  stopBtn.addEventListener('click', () => stopCamera());
   window.addEventListener('beforeunload', stopCamera);
-(function(){
-  const ua = (navigator.userAgent || "").toLowerCase();
-  const isInApp =
-    ua.includes("instagram") ||
-    ua.includes("fbav") || ua.includes("fban") ||
-    ua.includes("whatsapp") ||
-    ua.includes("gsa") ||          // Google Search App
-    ua.includes("gmail") ||
-    ua.includes("linkedin");
-
-  if (isInApp) {
-    showResult(false, "ATENCIÓN", "iPhone: abre en Safari (in-app browser bloquea cámara)");
-  }
 })();
 </script>
 </body>
