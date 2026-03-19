@@ -451,6 +451,7 @@ def render_planes_mensuales():
             select(Subscription, Passenger)
             .join(Passenger, Passenger.id == Subscription.passenger_id)
             .where(Subscription.month == month)
+            .where(Subscription.is_deleted == False)
             .order_by(Passenger.code)
         ).all()
 
@@ -459,6 +460,7 @@ def render_planes_mensuales():
         used_total = (s.rides_used_ida or 0) + (s.rides_used_vuelta or 0)
         remaining = max(0, (s.rides_included or 0) - used_total)
         subs_rows.append({
+            "sub_id": s.id,
             "passenger_code": p.code,
             "full_name": p.full_name,
             "plan_type": s.plan_type.value if s.plan_type else None,
@@ -473,6 +475,26 @@ def render_planes_mensuales():
     if subs_rows:
         dfs = pd.DataFrame(subs_rows)
         st.dataframe(dfs, use_container_width=True)
+        st.markdown("---")
+        st.markdown("### Eliminar plan mensual (soft-delete)")
+
+        sub_id = st.number_input("ID del plan (sub_id)", min_value=1, step=1, key="del_sub_id")
+        confirm_sub = st.checkbox("Confirmo eliminar este plan", key="del_sub_confirm")
+        btn_del_sub = st.button("🗑️ Eliminar plan", key="btn_del_sub", type="primary")
+
+        if btn_del_sub:
+            if not confirm_sub:
+                st.error("Confirma la eliminación.")
+            else:
+                with get_db() as db:
+                    sub = db.get(Subscription, int(sub_id))
+                    if not sub:
+                        st.error("No existe ese plan (sub_id).")
+                    else:
+                        sub.is_deleted = True
+                        sub.deleted_at = now_local().replace(tzinfo=None)
+                        db.add(sub)
+                st.success("Plan eliminado (soft-delete).")
         download_df(dfs, f"subs_{month.isoformat()}.csv")
     else:
         st.info("Sin planes para este mes.")
