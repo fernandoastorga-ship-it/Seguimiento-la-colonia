@@ -119,6 +119,19 @@ def _ensure_one_time_tokens_schema() -> None:
     ]
     _exec_autocommit(stmts, "_ensure_one_time_tokens_schema failed")
 
+def _ensure_soft_delete_columns() -> None:
+    stmts = [
+        "ALTER TABLE passengers ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE passengers ADD COLUMN IF NOT EXISTS deleted_at timestamp NULL;",
+        "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS deleted_at timestamp NULL;",
+        "ALTER TABLE daily_passes ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE daily_passes ADD COLUMN IF NOT EXISTS deleted_at timestamp NULL;",
+    ]
+    _exec_autocommit(stmts, "_ensure_soft_delete_columns failed")
+
+_ensure_soft_delete_columns()
+
 
 def _migrate_old_subscription_plan_values() -> None:
     """
