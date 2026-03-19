@@ -89,6 +89,8 @@ class Passenger(Base):
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="passenger")
     daily_passes: Mapped[list["DailyPass"]] = relationship(back_populates="passenger")
     tokens: Mapped[list["QrToken"]] = relationship(back_populates="passenger")
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Subscription(Base):
@@ -115,6 +117,9 @@ class Subscription(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     passenger: Mapped[Passenger] = relationship(back_populates="subscriptions")
+    
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class DailyPass(Base):
@@ -139,6 +144,9 @@ class DailyPass(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     passenger: Mapped[Passenger] = relationship(back_populates="daily_passes")
+
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Checkin(Base):
