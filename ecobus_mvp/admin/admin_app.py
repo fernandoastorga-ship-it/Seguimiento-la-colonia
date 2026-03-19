@@ -136,6 +136,8 @@ def render_pasajeros():
 
     with get_db() as db:
         stmt = select(Passenger)
+        stmt = stmt.where(Passenger.is_deleted == False)
+        
         if q:
             like = f"%{q.strip()}%"
             stmt = stmt.where(
@@ -145,6 +147,7 @@ def render_pasajeros():
             )
         if not show_inactive:
             stmt = stmt.where(Passenger.is_active == True)
+            stmt = stmt.where(Passenger.is_deleted == False)
 
         passengers = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
 
@@ -162,6 +165,26 @@ def render_pasajeros():
     if passenger_rows:
         dfp = pd.DataFrame(passenger_rows)
         st.dataframe(dfp, use_container_width=True)
+
+    st.markdown("### Eliminar pasajero (soft-delete)")
+
+del_code = st.text_input("Código a eliminar (ej: ECO0001)", key="del_pass_code").strip().upper()
+confirm = st.checkbox("Confirmo que quiero eliminarlo", key="del_pass_confirm")
+btn_del = st.button("🗑️ Eliminar pasajero", type="primary")
+
+if btn_del:
+    if not del_code or not confirm:
+        st.error("Ingresa código y confirma.")
+    else:
+        with get_db() as db:
+            p = db.execute(select(Passenger).where(Passenger.code == del_code)).scalar_one_or_none()
+            if not p:
+                st.error("No existe ese pasajero.")
+            else:
+                p.is_deleted = True
+                p.deleted_at = now_local().replace(tzinfo=None)
+                db.add(p)
+        st.success("Pasajero eliminado (soft-delete). Ya no contará en Finanzas ni listas.")
 
     st.markdown("---")
     st.markdown("### Acciones sobre pasajero")
@@ -608,7 +631,7 @@ def render_finanzas():
     st.subheader("Finanzas")
 
     PLAN_PRICES = {
-        "VIAJES_10": 18500,
+        "VIAJES_10": 19000,
         "VIAJES_20": 35000,
         "VIAJES_30": 49000,
         "VIAJES_40": 60000,
@@ -661,9 +684,12 @@ def render_finanzas():
                     DailyPass.service_date < end_dt.date(),
                     DailyPass.payment_status == PaymentStatus.PAGADO,
                     DailyPass.reservation_status == ReservationStatus.CONFIRMADO,
+                    DailyPass.is_deleted == False,
                 )
             )
+            .where(Passenger.is_deleted == False)
             .order_by(DailyPass.service_date.desc(), Passenger.code)
+            
         ).all()
 
     dp_table = []
@@ -721,6 +747,8 @@ def render_finanzas():
                 .where(and_(Subscription.activated_at != None,
                             Subscription.activated_at >= start_dt,
                             Subscription.activated_at < end_dt))
+                .where(Subscription.is_deleted == False)
+                .where(Passenger.is_deleted == False)
                 .order_by(Subscription.activated_at.desc())
             ).all()
 
