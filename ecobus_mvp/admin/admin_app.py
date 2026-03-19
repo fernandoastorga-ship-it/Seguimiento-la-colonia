@@ -168,23 +168,23 @@ def render_pasajeros():
 
     st.markdown("### Eliminar pasajero (soft-delete)")
 
-del_code = st.text_input("Código a eliminar (ej: ECO0001)", key="del_pass_code").strip().upper()
-confirm = st.checkbox("Confirmo que quiero eliminarlo", key="del_pass_confirm")
-btn_del = st.button("🗑️ Eliminar pasajero", type="primary")
+    del_code = st.text_input("Código a eliminar (ej: ECO0001)", key="del_pass_code").strip().upper()
+    confirm = st.checkbox("Confirmo que quiero eliminarlo", key="del_pass_confirm")
+    btn_del = st.button("🗑️ Eliminar pasajero", type="primary")
 
-if btn_del:
-    if not del_code or not confirm:
-        st.error("Ingresa código y confirma.")
-    else:
-        with get_db() as db:
-            p = db.execute(select(Passenger).where(Passenger.code == del_code)).scalar_one_or_none()
-            if not p:
-                st.error("No existe ese pasajero.")
-            else:
-                p.is_deleted = True
-                p.deleted_at = now_local().replace(tzinfo=None)
-                db.add(p)
-        st.success("Pasajero eliminado (soft-delete). Ya no contará en Finanzas ni listas.")
+    if btn_del:
+        if not del_code or not confirm:
+            st.error("Ingresa código y confirma.")
+        else:
+            with get_db() as db:
+                p = db.execute(select(Passenger).where(Passenger.code == del_code)).scalar_one_or_none()
+                if not p:
+                    st.error("No existe ese pasajero.")
+                else:
+                    p.is_deleted = True
+                    p.deleted_at = now_local().replace(tzinfo=None)
+                    db.add(p)
+            st.success("Pasajero eliminado (soft-delete). Ya no contará en Finanzas ni listas.")
 
     st.markdown("---")
     st.markdown("### Acciones sobre pasajero")
