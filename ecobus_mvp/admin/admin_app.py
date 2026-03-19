@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import streamlit as st
 from sqlalchemy import select, and_, desc, func
+from app.models import OneTimeToken, OneTimeTokenStatus
 
 from app.config import settings
 from app.db import get_db, ENGINE
@@ -720,7 +721,68 @@ def render_finanzas():
     k4.metric("Pendiente (CLP)", f"${total_pending:,}".replace(",", "."))
 
     st.caption(f"Ticket promedio: ${avg_ticket:,} CLP".replace(",", "."))
+# -------------------------
+# PASES DIARIOS (FINANZAS)
+# -------------------------
+st.markdown("---")
+st.markdown("### Pases diarios (CLP $2.000 c/u)")
 
+DAILY_PASS_PRICE = 2000
+
+with get_db() as db:
+    # A) Medición por DailyPass (PAGADO + CONFIRMADO)
+    # Usamos service_date para "día del servicio" dentro del rango
+    dp_rows = db.execute(
+        select(DailyPass, Passenger)
+        .join(Passenger, Passenger.id == DailyPass.passenger_id)
+        .where(
+            and_(
+                DailyPass.service_date >= start_dt.date(),
+                DailyPass.service_date < end_dt.date(),
+                DailyPass.payment_status == PaymentStatus.PAGADO,
+                DailyPass.reservation_status == ReservationStatus.CONFIRMADO,
+            )
+        )
+        .order_by(DailyPass.service_date.desc(), Passenger.code)
+    ).all()
+
+dp_table = []
+for dp, p in dp_rows:
+    dp_table.append({
+        "service_date": dp.service_date.isoformat() if dp.service_date else None,
+        "trip_type": dp.trip_type.value if dp.trip_type else None,
+        "passenger_code": p.code,
+        "full_name": p.full_name,
+        "status_pago": dp.payment_status.value if dp.payment_status else None,
+        "status_reserva": dp.reservation_status.value if dp.reservation_status else None,
+        "monto_clp": DAILY_PASS_PRICE,
+    })
+
+df_dp = pd.DataFrame(dp_table)
+
+# KPIs pases diarios
+dp_count = int(len(df_dp))
+dp_total = int(dp_count * DAILY_PASS_PRICE)
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Pases diarios (conteo)", str(dp_count))
+c2.metric("Ingresos pases diarios (CLP)", f"${dp_total:,}".replace(",", "."))
+c3.metric("Precio unitario", f"${DAILY_PASS_PRICE:,}".replace(",", "."))
+
+if dp_count:
+    st.dataframe(df_dp, use_container_width=True)
+    download_df(df_dp, f"pases_diarios_{start_dt.date().isoformat()}_{end_dt.date().isoformat()}.csv")
+
+    st.markdown("#### Ventas por día (pases diarios)")
+    by_day = (
+        df_dp.groupby("service_date")["monto_clp"]
+        .sum()
+        .reset_index()
+        .sort_values("service_date")
+    )
+    st.line_chart(by_day.set_index("service_date"))
+else:
+    st.info("No hay pases diarios PAGADO + CONFIRMADO en el período.")
     st.markdown("---")
     st.markdown("### Distribución de planes")
     dist = df.groupby("plan", dropna=False).agg(
