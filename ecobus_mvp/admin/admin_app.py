@@ -43,7 +43,7 @@ def download_df(df: pd.DataFrame, fname: str):
 
 
 PLAN_PRICES = {
-    "VIAJES_10": 18500,
+    "VIAJES_10": 19000,
     "VIAJES_20": 35000,
     "VIAJES_30": 49000,
     "VIAJES_40": 60000,
