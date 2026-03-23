@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr
+from typing import Optional
 
 from .models import PickupPoint, PlanType, PaymentStatus, TripType, ReservationStatus
 
@@ -65,3 +67,34 @@ class ValidateResponse(BaseModel):
     rides_included: int | None = None
     rides_used_total: int | None = None
     rides_remaining: int | None = None
+
+class OtpRequestIn(BaseModel):
+    identifier: str  # email o telefono
+
+
+class OtpRequestOut(BaseModel):
+    ok: bool
+    channel: str
+    masked_destination: str
+    expires_in_seconds: int
+
+
+class OtpVerifyIn(BaseModel):
+    identifier: str
+    code: str
+
+
+class AuthMeOut(BaseModel):
+    ok: bool
+    passenger_id: int
+    full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    app_enabled: bool
+
+
+class OtpVerifyOut(BaseModel):
+    ok: bool
+    access_token: str
+    expires_in_seconds: int
+    passenger: AuthMeOut
