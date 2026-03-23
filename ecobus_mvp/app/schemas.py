@@ -88,8 +88,8 @@ class AuthMeOut(BaseModel):
     ok: bool
     passenger_id: str
     full_name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    email: Optional[str] = None = None
+    phone: Optional[str] = None = None
     app_enabled: bool
 
 
