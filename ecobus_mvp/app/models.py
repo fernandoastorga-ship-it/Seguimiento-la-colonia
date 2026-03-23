@@ -18,6 +18,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy.orm import relationship
+from datetime import datetime
 
 
 def _uuid_col():
@@ -92,6 +95,41 @@ class Passenger(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    email_verified_at = Column(DateTime, nullable=True)
+    phone_verified_at = Column(DateTime, nullable=True)
+    app_enabled = Column(Boolean, nullable=False, default=True)
+    last_login_at = Column(DateTime, nullable=True)
+    accepted_terms_version = Column(String, nullable=True)
+    accepted_terms_at = Column(DateTime, nullable=True)
+
+class OtpCode(Base):
+    __tablename__ = "otp_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    passenger_id = Column(Integer, ForeignKey("passengers.id"), nullable=True)
+    identifier = Column(String, nullable=False, index=True)  # email o telefono
+    channel = Column(String, nullable=False)  # email / phone
+    code_hash = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    passenger = relationship("Passenger")
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    passenger_id = Column(Integer, ForeignKey("passengers.id"), nullable=False, index=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    device_info = Column(Text, nullable=True)
+
+    passenger = relationship("Passenger")
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
