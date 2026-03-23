@@ -41,6 +41,7 @@ def mask_identifier(identifier: str, channel: str) -> str:
         return "*" * len(identifier)
     return "*" * (len(identifier) - 4) + identifier[-4:]
 
+
 def normalize_identifier(identifier: str) -> str:
     identifier = identifier.strip()
     if "@" in identifier:
@@ -101,6 +102,9 @@ def verify_otp(db: Session, identifier: str, code: str) -> Passenger | None:
         .first()
     )
 
+    print(f"[VERIFY OTP] identifier_normalized={identifier}")
+    print(f"[VERIFY OTP] otp_found={otp is not None}")
+
     if not otp:
         return None
 
@@ -116,6 +120,8 @@ def verify_otp(db: Session, identifier: str, code: str) -> Passenger | None:
     otp.consumed_at = datetime.utcnow()
 
     passenger = find_passenger_by_identifier(db, identifier)
+    print(f"[VERIFY OTP] passenger_found={passenger is not None}")
+
     if passenger:
         if otp.channel == "email":
             passenger.email_verified_at = datetime.utcnow()
@@ -123,8 +129,4 @@ def verify_otp(db: Session, identifier: str, code: str) -> Passenger | None:
             passenger.phone_verified_at = datetime.utcnow()
 
     db.commit()
- print(f"[VERIFY OTP] identifier_normalized={identifier}")
- print(f"[VERIFY OTP] otp_found={otp is not None}")
     return passenger
-
-print(f"[VERIFY OTP] passenger_found={passenger is not None}")
