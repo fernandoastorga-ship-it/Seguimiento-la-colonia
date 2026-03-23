@@ -19,6 +19,7 @@ def generate_otp_code() -> str:
 
 
 def detect_channel(identifier: str) -> str:
+    identifier = identifier.strip()
     if "@" in identifier:
         return "email"
     return "phone"
@@ -40,14 +41,21 @@ def mask_identifier(identifier: str, channel: str) -> str:
         return "*" * len(identifier)
     return "*" * (len(identifier) - 4) + identifier[-4:]
 
+def normalize_identifier(identifier: str) -> str:
+    identifier = identifier.strip()
+    if "@" in identifier:
+        return identifier.lower()
+    return identifier
+
 
 def find_passenger_by_identifier(db: Session, identifier: str) -> Passenger | None:
+    identifier = normalize_identifier(identifier)
     channel = detect_channel(identifier)
 
     if channel == "email":
         return (
             db.query(Passenger)
-            .filter(Passenger.email == identifier, Passenger.is_deleted == False)
+            .filter(Passenger.email.ilike(identifier), Passenger.is_deleted == False)
             .first()
         )
 
@@ -59,6 +67,7 @@ def find_passenger_by_identifier(db: Session, identifier: str) -> Passenger | No
 
 
 def create_otp(db: Session, identifier: str) -> tuple[str, str, int]:
+    identifier = normalize_identifier(identifier)
     channel = detect_channel(identifier)
     code = generate_otp_code()
     expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXP_MINUTES)
@@ -80,6 +89,8 @@ def create_otp(db: Session, identifier: str) -> tuple[str, str, int]:
 
 
 def verify_otp(db: Session, identifier: str, code: str) -> Passenger | None:
+    identifier = normalize_identifier(identifier)
+
     otp = (
         db.query(OtpCode)
         .filter(
