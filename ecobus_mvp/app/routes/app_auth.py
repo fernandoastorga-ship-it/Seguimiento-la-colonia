@@ -69,10 +69,10 @@ def verify_otp_route(
 
     passenger_out = AuthMeOut(
         ok=True,
-        passenger_id=passenger.id,
-        full_name=getattr(passenger, "full_name", None) or getattr(passenger, "name", None) or "Usuario",
-        email=getattr(passenger, "email", None),
-        phone=getattr(passenger, "phone", None),
+        passenger_id=str(passenger.id),
+        full_name=passenger.full_name,
+        email=passenger.email,
+        phone=passenger.phone,
         app_enabled=passenger.app_enabled,
     )
 
@@ -82,7 +82,6 @@ def verify_otp_route(
         expires_in_seconds=expires_seconds,
         passenger=passenger_out,
     )
-
 
 @router.get("/me", response_model=AuthMeOut)
 def me(
@@ -99,10 +98,10 @@ def me(
 
     return AuthMeOut(
         ok=True,
-        passenger_id=passenger.id,
-        full_name=getattr(passenger, "full_name", None) or getattr(passenger, "name", None) or "Usuario",
-        email=getattr(passenger, "email", None),
-        phone=getattr(passenger, "phone", None),
+        passenger_id=str(passenger.id),
+        full_name=passenger.full_name,
+        email=passenger.email,
+        phone=passenger.phone,
         app_enabled=passenger.app_enabled,
     )
 
