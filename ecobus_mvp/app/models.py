@@ -102,34 +102,46 @@ class Passenger(Base):
     accepted_terms_version = Column(String, nullable=True)
     accepted_terms_at = Column(DateTime, nullable=True)
 
+
 class OtpCode(Base):
     __tablename__ = "otp_codes"
 
-    id = Column(Integer, primary_key=True, index=True)
-    passenger_id = Column(Integer, ForeignKey("passengers.id"), nullable=True)
-    identifier = Column(String, nullable=False, index=True)  # email o telefono
-    channel = Column(String, nullable=False)  # email / phone
-    code_hash = Column(String, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    consumed_at = Column(DateTime, nullable=True)
-    attempts = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    passenger_id: Mapped[uuid.UUID | None] = mapped_column(
+        _uuid_col(),
+        ForeignKey("passengers.id"),
+        nullable=True,
+        index=True,
+    )
 
-    passenger = relationship("Passenger")
+    identifier: Mapped[str] = mapped_column(String(200), index=True)
+    channel: Mapped[str] = mapped_column(String(20))
+    code_hash: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    passenger: Mapped["Passenger | None"] = relationship()
 
 class UserSession(Base):
     __tablename__ = "user_sessions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    passenger_id = Column(Integer, ForeignKey("passengers.id"), nullable=False, index=True)
-    token_hash = Column(String, nullable=False, unique=True, index=True)
-    expires_at = Column(DateTime, nullable=False)
-    revoked_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    device_info = Column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    passenger_id: Mapped[uuid.UUID] = mapped_column(
+        _uuid_col(),
+        ForeignKey("passengers.id"),
+        nullable=False,
+        index=True,
+    )
 
-    passenger = relationship("Passenger")
+    token_hash: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    device_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    passenger: Mapped["Passenger"] = relationship()
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
