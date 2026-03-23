@@ -725,7 +725,6 @@ def checkins_day(service_date: str | None = None):
         return {"date": d.isoformat(), "items": out}
 
 from sqlalchemy import text
-from app.db import get_conn
 
 @app.get("/__run_migration_auth")
 def run_auth_migration():
@@ -771,8 +770,9 @@ def run_auth_migration():
         "CREATE INDEX IF NOT EXISTS ix_user_sessions_token_hash ON user_sessions(token_hash);",
     ]
 
-    with get_conn() as conn:
+    with get_db() as db:
         for stmt in stmts:
-            conn.execute(text(stmt))
+            db.execute(text(stmt))
+        db.commit()
 
     return {"ok": True, "message": "Migración ejecutada correctamente"}
