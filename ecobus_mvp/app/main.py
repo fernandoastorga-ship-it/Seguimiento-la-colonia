@@ -38,9 +38,25 @@ from .schemas import (
     DailyPassUpdate,
     ValidateResponse,
 )
+from app.routes import (
+    app_auth,
+    app_dashboard,
+    app_qr,
+    app_payments,
+    app_history,
+    app_legal,
+)
 from .utils import now_local, today_local, month_start, end_of_month, in_time_window, generate_token, next_passenger_code
 
 app = FastAPI(title="Ecobus MVP Control Pasajeros", version="0.1.0")
+
+app.include_router(app_auth.router)
+app.include_router(app_dashboard.router)
+app.include_router(app_qr.router)
+app.include_router(app_payments.router)
+app.include_router(app_history.router)
+app.include_router(app_legal.router)
+
 
 # Create tables automatically (MVP friendly). In production, switch to Alembic migrations.
 Base.metadata.create_all(bind=ENGINE)
