@@ -1,11 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import and_, select
+from sqlalchemy import and_, desc, select
 
 from app.config import settings
 from app.db import get_db
-from app.models import QrToken, TokenStatus
-from app.qr_helpers import make_qr_png, create_or_rotate_token
+from app.models import (
+    DailyPass,
+    PaymentStatus,
+    QrToken,
+    ReservationStatus,
+    TokenStatus,
+    OneTimeToken,
+    OneTimeTokenStatus,
+)
+from app.qr_helpers import create_or_rotate_token
 from app.services.auth_service import get_passenger_from_token
 
 
@@ -14,17 +24,7 @@ router = APIRouter(prefix="/app/qr", tags=["App QR"])
 security = HTTPBearer()
 
 
-def _get_current_passenger(credentials: HTTPAuthorizationCredentials):
-    token = credentials.credentials
-
-    with get_db() as db:
-        passenger = get_passenger_from_token(db, token)
-        if not passenger:
-            raise HTTPException(status_code=401, detail="Token inválido o expirado")
-        return passenger
-
-
-def _get_active_qr_token(db, passenger_id):
+def _get_active_monthly_qr(db, passenger_id):
     stmt = (
         select(QrToken)
         .where(
@@ -33,7 +33,39 @@ def _get_active_qr_token(db, passenger_id):
                 QrToken.status == TokenStatus.ACTIVE,
             )
         )
-        .order_by(QrToken.valid_to.desc(), QrToken.id.desc())
+        .order_by(desc(QrToken.valid_to), desc(QrToken.id))
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def _get_today_confirmed_daily_pass(db, passenger_id, today: date):
+    stmt = (
+        select(DailyPass)
+        .where(
+            and_(
+                DailyPass.passenger_id == passenger_id,
+                DailyPass.service_date == today,
+                DailyPass.payment_status == PaymentStatus.PAGADO,
+                DailyPass.reservation_status == ReservationStatus.CONFIRMADO,
+                DailyPass.is_deleted == False,
+            )
+        )
+        .order_by(desc(DailyPass.id))
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def _get_active_one_time_token_for_daily_pass(db, daily_pass_id):
+    stmt = (
+        select(OneTimeToken)
+        .where(
+            and_(
+                OneTimeToken.daily_pass_id == daily_pass_id,
+                OneTimeToken.status == OneTimeTokenStatus.ACTIVE,
+                OneTimeToken.used_at.is_(None),
+            )
+        )
+        .order_by(desc(OneTimeToken.id))
     )
     return db.execute(stmt).scalars().first()
 
@@ -48,61 +80,83 @@ def qr_health():
 
 
 @router.get("/", dependencies=[Depends(security)])
-def get_my_qr(
+def get_my_qr_bundle(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     token = credentials.credentials
+    today = date.today()
 
     with get_db() as db:
         passenger = get_passenger_from_token(db, token)
         if not passenger:
             raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-        qr_token = _get_active_qr_token(db, passenger.id)
+        # -----------------------------
+        # QR mensual
+        # -----------------------------
+        monthly_qr = _get_active_monthly_qr(db, passenger.id)
 
-        # fallback seguro: si por alguna razón no tiene token activo, lo generamos
-        if not qr_token:
-            raw_token = create_or_rotate_token(db, passenger.id)
-            qr_token = _get_active_qr_token(db, passenger.id)
-            if not qr_token:
-                raise HTTPException(status_code=500, detail="No fue posible generar QR activo")
-        else:
-            raw_token = qr_token.token
+        if not monthly_qr:
+            create_or_rotate_token(db, passenger.id)
+            monthly_qr = _get_active_monthly_qr(db, passenger.id)
 
-        qr_url = f"{settings.public_base_url.rstrip('/')}/q/{raw_token}"
-        image_url = f"{settings.public_base_url.rstrip('/')}/app/qr/image"
-
-        return {
-            "passenger_id": str(passenger.id),
-            "full_name": passenger.full_name,
-            "token": raw_token,
-            "status": qr_token.status.value,
-            "valid_from": qr_token.valid_from,
-            "valid_to": qr_token.valid_to,
-            "qr_url": qr_url,
-            "image_url": image_url,
+        monthly_qr_data = {
+            "available": False,
+            "token": None,
+            "status": None,
+            "valid_from": None,
+            "valid_to": None,
+            "qr_url": None,
+            "image_url": None,
         }
 
+        if monthly_qr:
+            monthly_qr_data = {
+                "available": True,
+                "token": monthly_qr.token,
+                "status": monthly_qr.status.value,
+                "valid_from": monthly_qr.valid_from,
+                "valid_to": monthly_qr.valid_to,
+                "qr_url": f"{settings.public_base_url.rstrip('/')}/q/{monthly_qr.token}",
+                "image_url": f"{settings.public_base_url.rstrip('/')}/q/{monthly_qr.token}",
+            }
 
-@router.get("/image", dependencies=[Depends(security)])
-def get_my_qr_image(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-):
-    token = credentials.credentials
+        # -----------------------------
+        # QR de pase diario
+        # -----------------------------
+        daily_pass = _get_today_confirmed_daily_pass(db, passenger.id, today)
 
-    with get_db() as db:
-        passenger = get_passenger_from_token(db, token)
-        if not passenger:
-            raise HTTPException(status_code=401, detail="Token inválido o expirado")
+        daily_pass_qr_data = {
+            "available": False,
+            "daily_pass_id": None,
+            "service_date": None,
+            "trip_type": None,
+            "token": None,
+            "status": None,
+            "qr_url": None,
+            "image_url": None,
+        }
 
-        qr_token = _get_active_qr_token(db, passenger.id)
+        if daily_pass:
+            ot = _get_active_one_time_token_for_daily_pass(db, daily_pass.id)
 
-        if not qr_token:
-            raw_token = create_or_rotate_token(db, passenger.id)
-        else:
-            raw_token = qr_token.token
+            if ot:
+                daily_pass_qr_data = {
+                    "available": True,
+                    "daily_pass_id": daily_pass.id,
+                    "service_date": daily_pass.service_date,
+                    "trip_type": daily_pass.trip_type.value,
+                    "token": ot.token,
+                    "status": ot.status.value,
+                    "qr_url": f"{settings.public_base_url.rstrip('/')}/ot/{ot.token}",
+                    "image_url": f"{settings.public_base_url.rstrip('/')}/ot/{ot.token}",
+                }
 
-        qr_url = f"{settings.public_base_url.rstrip('/')}/q/{raw_token}"
-        png_bytes = make_qr_png(qr_url)
-
-        return Response(content=png_bytes, media_type="image/png")
+        return {
+            "passenger": {
+                "id": str(passenger.id),
+                "full_name": passenger.full_name,
+            },
+            "monthly_qr": monthly_qr_data,
+            "daily_pass_qr": daily_pass_qr_data,
+        }
