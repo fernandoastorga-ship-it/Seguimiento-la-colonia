@@ -17,6 +17,8 @@ from app.models import (
 )
 from app.qr_helpers import create_or_rotate_token
 from app.services.auth_service import get_passenger_from_token
+from fastapi import Response
+from app.qr_helpers import make_qr_png
 
 
 router = APIRouter(prefix="/app/qr", tags=["App QR"])
@@ -115,6 +117,7 @@ def get_my_qr_bundle(
                 "valid_from": monthly_qr.valid_from,
                 "valid_to": monthly_qr.valid_to,
                 "qr_url": f"{settings.public_base_url.rstrip('/')}/q/{monthly_qr.token}",
+                "image_url": f"{settings.public_base_url.rstrip('/')}/app/qr/monthly/image",
             }
 
         # QR pase diario
@@ -142,6 +145,7 @@ def get_my_qr_bundle(
                     "token": ot.token,
                     "status": ot.status.value,
                     "qr_url": f"{settings.public_base_url.rstrip('/')}/ot/{ot.token}",
+                    "image_url": f"{settings.public_base_url.rstrip('/')}/app/qr/daily-pass/image",
                 }
 
         return {
@@ -152,3 +156,53 @@ def get_my_qr_bundle(
             "monthly_qr": monthly_qr_data,
             "daily_pass_qr": daily_pass_qr_data,
         }
+
+@router.get("/monthly/image", dependencies=[Depends(security)])
+def get_monthly_qr_image(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    token = credentials.credentials
+
+    with get_db() as db:
+        passenger = get_passenger_from_token(db, token)
+        if not passenger:
+            raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+        monthly_qr = _get_active_monthly_qr(db, passenger.id)
+
+        if not monthly_qr:
+            create_or_rotate_token(db, passenger.id)
+            monthly_qr = _get_active_monthly_qr(db, passenger.id)
+
+        if not monthly_qr:
+            raise HTTPException(status_code=500, detail="No fue posible obtener QR mensual")
+
+        qr_url = f"{settings.public_base_url.rstrip('/')}/q/{monthly_qr.token}"
+        png_bytes = make_qr_png(qr_url)
+
+        return Response(content=png_bytes, media_type="image/png")
+
+@router.get("/daily-pass/image", dependencies=[Depends(security)])
+def get_daily_pass_qr_image(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    token = credentials.credentials
+    today = date.today()
+
+    with get_db() as db:
+        passenger = get_passenger_from_token(db, token)
+        if not passenger:
+            raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+        daily_pass = _get_today_confirmed_daily_pass(db, passenger.id, today)
+        if not daily_pass:
+            raise HTTPException(status_code=404, detail="No existe pase diario confirmado para hoy")
+
+        ot = _get_active_one_time_token_for_daily_pass(db, daily_pass.id)
+        if not ot:
+            raise HTTPException(status_code=404, detail="No existe QR activo para el pase diario")
+
+        qr_url = f"{settings.public_base_url.rstrip('/')}/ot/{ot.token}"
+        png_bytes = make_qr_png(qr_url)
+
+        return Response(content=png_bytes, media_type="image/png")
