@@ -1,6 +1,7 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -10,16 +11,17 @@ from app.services.auth_service import get_passenger_from_token
 
 router = APIRouter(prefix="/app/dashboard", tags=["App Dashboard"])
 
+bearer_scheme = HTTPBearer(auto_error=False)
+
 
 def get_current_passenger(
-    authorization: str = Header(None),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ):
-    if not authorization or not authorization.startswith("Bearer "):
+    if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Token requerido")
 
-    token = authorization.split(" ")[1]
-
+    token = credentials.credentials
     passenger = get_passenger_from_token(db, token)
 
     if not passenger:
@@ -30,8 +32,8 @@ def get_current_passenger(
 
 @router.get("/")
 def get_dashboard(
-    db: Session = Depends(get_db),
     passenger = Depends(get_current_passenger),
+    db: Session = Depends(get_db),
 ):
     dashboard = build_app_dashboard(
         db=db,
@@ -40,6 +42,6 @@ def get_dashboard(
     )
 
     if not dashboard:
-        raise HTTPException(404, "Pasajero no encontrado")
+        raise HTTPException(status_code=404, detail="Pasajero no encontrado")
 
     return dashboard
