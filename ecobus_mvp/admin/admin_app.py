@@ -23,7 +23,7 @@ from app.models import (
     TokenStatus,
     CheckinResult,
 )
-from app.main import _make_qr_png, _create_or_rotate_token
+from app.main import make_qr_png, create_or_rotate_token
 from app.utils import now_local
 
 Base.metadata.create_all(bind=ENGINE)
@@ -212,7 +212,7 @@ def render_pasajeros():
                 else:
                     p.is_active = False if btn_deactivate else True
                     db.add(p)
-                    _create_or_rotate_token(db, p.id)
+                    create_or_rotate_token(db, p.id)
             st.success("Acción aplicada correctamente.")
 
     if btn_qr_download or btn_qr_regen:
@@ -227,7 +227,7 @@ def render_pasajeros():
                     token = None
 
                     if btn_qr_regen:
-                        token = _create_or_rotate_token(db, p.id)
+                        token = create_or_rotate_token(db, p.id)
                     else:
                         t = db.execute(
                             select(QrToken).where(
@@ -241,10 +241,10 @@ def render_pasajeros():
                                 token = t.token
 
                         if not token:
-                            token = _create_or_rotate_token(db, p.id)
+                            token = create_or_rotate_token(db, p.id)
 
                     qr_url = f"{settings.public_base_url.rstrip('/')}/q/{token}"
-                    png_bytes = _make_qr_png(qr_url)
+                    png_bytes = make_qr_png(qr_url)
 
             st.download_button(
                 label="Descargar PNG QR",
@@ -430,7 +430,7 @@ def render_pasajeros():
                 passenger_code = p.code
                 passenger_id = str(p.id)
 
-                _create_or_rotate_token(db, p.id)
+                create_or_rotate_token(db, p.id)
 
             st.success(f"Pasajero creado: {passenger_code}")
             st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
@@ -549,7 +549,7 @@ def render_planes_mensuales():
                         sub.rides_used_vuelta = 0
 
                 db.add(sub)
-                _create_or_rotate_token(db, p.id)
+                create_or_rotate_token(db, p.id)
 
         st.success("Plan guardado y QR rotado.")
 
@@ -634,7 +634,7 @@ def render_pase_diario():
                 db.flush()
 
                 qr_url = f"{settings.public_base_url.rstrip('/')}/ot/{token}"
-                png_bytes = _make_qr_png(qr_url)
+                png_bytes = make_qr_png(qr_url)
                 qr_fname = f"QR_PASE_DIARIO_{passenger_code}_{d.isoformat()}_{trip}.png"
 
         if png_bytes:
