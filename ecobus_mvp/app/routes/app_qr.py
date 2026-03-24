@@ -91,9 +91,7 @@ def get_my_qr_bundle(
         if not passenger:
             raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-        # -----------------------------
         # QR mensual
-        # -----------------------------
         monthly_qr = _get_active_monthly_qr(db, passenger.id)
 
         if not monthly_qr:
@@ -107,7 +105,6 @@ def get_my_qr_bundle(
             "valid_from": None,
             "valid_to": None,
             "qr_url": None,
-            "image_url": None,
         }
 
         if monthly_qr:
@@ -118,12 +115,9 @@ def get_my_qr_bundle(
                 "valid_from": monthly_qr.valid_from,
                 "valid_to": monthly_qr.valid_to,
                 "qr_url": f"{settings.public_base_url.rstrip('/')}/q/{monthly_qr.token}",
-                "image_url": f"{settings.public_base_url.rstrip('/')}/q/{monthly_qr.token}",
             }
 
-        # -----------------------------
-        # QR de pase diario
-        # -----------------------------
+        # QR pase diario
         daily_pass = _get_today_confirmed_daily_pass(db, passenger.id, today)
 
         daily_pass_qr_data = {
@@ -134,7 +128,6 @@ def get_my_qr_bundle(
             "token": None,
             "status": None,
             "qr_url": None,
-            "image_url": None,
         }
 
         if daily_pass:
@@ -149,7 +142,6 @@ def get_my_qr_bundle(
                     "token": ot.token,
                     "status": ot.status.value,
                     "qr_url": f"{settings.public_base_url.rstrip('/')}/ot/{ot.token}",
-                    "image_url": f"{settings.public_base_url.rstrip('/')}/ot/{ot.token}",
                 }
 
         return {
