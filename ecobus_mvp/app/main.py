@@ -47,6 +47,7 @@ from app.routes import (
     app_legal,
 )
 from .utils import now_local, today_local, month_start, end_of_month, in_time_window, generate_token, next_passenger_code
+from app.qr_helpers import make_qr_png, create_or_rotate_token
 
 app = FastAPI(title="Ecobus MVP Control Pasajeros", version="0.1.0")
 
@@ -180,7 +181,7 @@ def create_passenger(payload: PassengerCreate):
         db.add(p)
         db.flush()
         # Create initial active token for current month
-        _create_or_rotate_token(db, p.id)
+        create_or_rotate_token(db, p.id)
         db.refresh(p)
         return PassengerOut(
             id=str(p.id),
@@ -250,49 +251,9 @@ def regen_qr(passenger_id: str):
         p = db.get(Passenger, passenger_id)
         if not p:
             raise HTTPException(404, "Passenger not found")
-        token = _create_or_rotate_token(db, p.id)
-        png_bytes = _make_qr_png(f"{settings.public_base_url.rstrip('/')}/q/{token}")
+        token = create_or_rotate_token(db, p.id)
+        png_bytes = make_qr_png(f"{settings.public_base_url.rstrip('/')}/q/{token}")
         return Response(content=png_bytes, media_type="image/png")
-
-
-def _make_qr_png(content: str) -> bytes:
-    qr = qrcode.QRCode(
-        version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(content)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    img = img.resize((600, 600))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def _create_or_rotate_token(db, passenger_id) -> str:
-    # Revoke previous active token and create a new one for current month
-    now = now_local()
-    # revoke any active
-    stmt = select(QrToken).where(and_(QrToken.passenger_id == passenger_id, QrToken.status == TokenStatus.ACTIVE))
-    for t in db.execute(stmt).scalars().all():
-        t.status = TokenStatus.REVOKED
-        db.add(t)
-
-    token = generate_token()
-    valid_from = now
-    valid_to = end_of_month(now)
-    tnew = QrToken(
-        passenger_id=passenger_id,
-        token=token,
-        status=TokenStatus.ACTIVE,
-        valid_from=valid_from.replace(tzinfo=None),
-        valid_to=valid_to.replace(tzinfo=None),
-    )
-    db.add(tnew)
-    db.flush()
-    return token
 
 
 # ---------- Subscriptions activation ----------
@@ -347,7 +308,7 @@ def activate_subscription(payload: ActivateSubscriptionIn):
         db.add(sub)
 
         # Rotar token al activar plan
-        _create_or_rotate_token(db, p.id)
+        create_or_rotate_token(db, p.id)
 
         return {"ok": True, "message": "Suscripción activada y QR rotado."}
 
