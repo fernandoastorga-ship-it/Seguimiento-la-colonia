@@ -48,8 +48,20 @@ from app.routes import (
 )
 from .utils import now_local, today_local, month_start, end_of_month, in_time_window, generate_token, next_passenger_code
 from app.qr_helpers import make_qr_png, create_or_rotate_token
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Ecobus MVP Control Pasajeros", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(app_auth.router)
 app.include_router(app_dashboard.router)
