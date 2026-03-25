@@ -1,6 +1,10 @@
 import hashlib
+import os
 import random
+import smtplib
 from datetime import datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 from sqlalchemy.orm import Session
 
@@ -67,6 +71,76 @@ def find_passenger_by_identifier(db: Session, identifier: str) -> Passenger | No
     )
 
 
+def send_otp_email(to_email: str, code: str) -> None:
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASS")
+    from_email = os.getenv("FROM_EMAIL")
+    from_name = os.getenv("FROM_NAME", "Ecobus")
+
+    missing = []
+    if not smtp_host:
+        missing.append("SMTP_HOST")
+    if not smtp_user:
+        missing.append("SMTP_USER")
+    if not smtp_pass:
+        missing.append("SMTP_PASS")
+    if not from_email:
+        missing.append("FROM_EMAIL")
+
+    if missing:
+        raise RuntimeError(f"Faltan variables SMTP: {', '.join(missing)}")
+
+    subject = "Tu código de acceso Ecobus"
+    text_body = (
+        f"Tu código de acceso Ecobus es: {code}\n\n"
+        f"Este código vence en {OTP_EXP_MINUTES} minutos.\n\n"
+        f"Si no solicitaste este acceso, puedes ignorar este correo."
+    )
+    html_body = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #222;">
+        <h2 style="margin-bottom: 8px;">Ecobus</h2>
+        <p>Tu código de acceso es:</p>
+        <div style="font-size: 32px; font-weight: bold; letter-spacing: 6px; margin: 18px 0;">
+          {code}
+        </div>
+        <p>Este código vence en <b>{OTP_EXP_MINUTES} minutos</b>.</p>
+        <p>Si no solicitaste este acceso, puedes ignorar este correo.</p>
+      </body>
+    </html>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{from_name} <{from_email}>"
+    msg["To"] = to_email
+
+    msg.attach(MIMEText(text_body, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    server = None
+    try:
+        print(f"[OTP EMAIL] Conectando SMTP host={smtp_host} port={smtp_port} user={smtp_user}")
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(from_email, [to_email], msg.as_string())
+        print(f"[OTP EMAIL] Correo enviado correctamente a {to_email}")
+    except Exception as e:
+        print(f"[OTP EMAIL] ERROR enviando correo a {to_email}: {repr(e)}")
+        raise
+    finally:
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+
 def create_otp(db: Session, identifier: str) -> tuple[str, str, int]:
     identifier = normalize_identifier(identifier)
     channel = detect_channel(identifier)
@@ -85,6 +159,12 @@ def create_otp(db: Session, identifier: str) -> tuple[str, str, int]:
     )
     db.add(otp)
     db.commit()
+
+    # Envío OTP por correo si el identificador es email
+    if channel == "email":
+        send_otp_email(identifier, code)
+    else:
+        print(f"[OTP SMS] No implementado para identifier={identifier}. Código generado={code}")
 
     return code, channel, OTP_EXP_MINUTES * 60
 
