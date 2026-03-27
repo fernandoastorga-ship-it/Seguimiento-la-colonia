@@ -7,6 +7,8 @@ from sqlalchemy import and_, desc, select
 from app.db import get_db
 from app.models import DailyPass, Subscription
 from app.services.auth_service import get_passenger_from_token
+from pydantic import BaseModel
+from app.models import Passenger, PaymentStatus, ReservationStatus, PlanType
 
 
 router = APIRouter(prefix="/app/payments", tags=["App Payments"])
@@ -141,5 +143,138 @@ def get_payment_status(
                 "monthly_plan_paid": monthly_plan_data["is_paid"],
                 "daily_pass_paid": daily_pass_data["is_paid"],
                 "daily_pass_confirmed": daily_pass_data["is_confirmed"],
+            },
+        }
+class MonthlyPlanPurchaseIn(BaseModel):
+    month: date
+    plan_type: str
+
+
+class DailyPassPurchaseIn(BaseModel):
+    service_date: date
+    trip_type: str
+
+
+@router.post("/monthly-plan/purchase", dependencies=[Depends(security)])
+def purchase_monthly_plan(
+    payload: MonthlyPlanPurchaseIn,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    token = credentials.credentials
+
+    PLAN_RIDES = {
+        "VIAJES_10": 10,
+        "VIAJES_20": 20,
+        "VIAJES_30": 30,
+        "VIAJES_40": 40,
+    }
+
+    if payload.plan_type not in PLAN_RIDES:
+        raise HTTPException(
+            status_code=400,
+            detail="PlanType inválido. Usa VIAJES_10, VIAJES_20, VIAJES_30 o VIAJES_40.",
+        )
+
+    with get_db() as db:
+        passenger = get_passenger_from_token(db, token)
+        if not passenger:
+            raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+        rides_included = PLAN_RIDES[payload.plan_type]
+
+        sub = db.execute(
+            select(Subscription).where(
+                and_(
+                    Subscription.passenger_id == passenger.id,
+                    Subscription.month == payload.month,
+                    Subscription.is_deleted == False,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not sub:
+            sub = Subscription(
+                passenger_id=passenger.id,
+                month=payload.month,
+                plan_type=PlanType[payload.plan_type],
+                payment_status=PaymentStatus.PAGADO,
+                rides_included=rides_included,
+                rides_used_ida=0,
+                rides_used_vuelta=0,
+                activated_at=date.today(),
+                notes="Compra desde app",
+            )
+        else:
+            sub.plan_type = PlanType[payload.plan_type]
+            sub.payment_status = PaymentStatus.PAGADO
+            sub.rides_included = rides_included
+            sub.activated_at = date.today()
+            sub.notes = "Compra/renovación desde app"
+
+        db.add(sub)
+
+        # Rotar token QR al activar/renovar plan
+        create_or_rotate_token(db, passenger.id)
+
+        return {
+            "ok": True,
+            "message": "Plan mensual activado correctamente.",
+            "passenger": {
+                "id": str(passenger.id),
+                "full_name": passenger.full_name,
+                "code": passenger.code,
+            },
+            "monthly_plan": {
+                "month": payload.month,
+                "plan_type": payload.plan_type,
+                "payment_status": "PAGADO",
+                "rides_included": rides_included,
+            },
+        }
+
+
+@router.post("/daily-pass/purchase", dependencies=[Depends(security)])
+def purchase_daily_pass(
+    payload: DailyPassPurchaseIn,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    token = credentials.credentials
+
+    if payload.trip_type not in ["IDA", "VUELTA"]:
+        raise HTTPException(
+            status_code=400,
+            detail="trip_type inválido. Usa IDA o VUELTA.",
+        )
+
+    with get_db() as db:
+        passenger = get_passenger_from_token(db, token)
+        if not passenger:
+            raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+        dp = DailyPass(
+            passenger_id=passenger.id,
+            service_date=payload.service_date,
+            trip_type=payload.trip_type,
+            payment_status=PaymentStatus.PAGADO,
+            reservation_status=ReservationStatus.CONFIRMADO,
+        )
+
+        db.add(dp)
+        db.flush()
+
+        return {
+            "ok": True,
+            "message": "Pase diario creado correctamente.",
+            "passenger": {
+                "id": str(passenger.id),
+                "full_name": passenger.full_name,
+                "code": passenger.code,
+            },
+            "daily_pass": {
+                "id": dp.id,
+                "service_date": payload.service_date,
+                "trip_type": payload.trip_type,
+                "payment_status": "PAGADO",
+                "reservation_status": "CONFIRMADO",
             },
         }
