@@ -6,7 +6,6 @@ from sqlalchemy import and_, desc, select
 
 from app.db import get_db
 from app.models import DailyPass, Subscription, PaymentStatus, ReservationStatus, PlanType
-from app.services.qr_service import create_or_rotate_token
 from app.services.auth_service import get_passenger_from_token
 from pydantic import BaseModel
 from app.models import Passenger, PaymentStatus, ReservationStatus, PlanType
@@ -214,8 +213,7 @@ def purchase_monthly_plan(
         db.add(sub)
         db.flush()
 
-        # create_or_rotate_token(db, passenger.id)
-        create_or_rotate_token(db, passenger.id)
+
 
         return {
             "ok": True,
