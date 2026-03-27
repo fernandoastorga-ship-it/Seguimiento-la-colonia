@@ -5,11 +5,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import and_, desc, select
 
 from app.db import get_db
-from app.models import DailyPass, Subscription
+from app.models import DailyPass, Subscription, PaymentStatus, ReservationStatus, PlanType
+from app.utils.time import now_local
+from app.services.qr_service import create_or_rotate_token
 from app.services.auth_service import get_passenger_from_token
 from pydantic import BaseModel
 from app.models import Passenger, PaymentStatus, ReservationStatus, PlanType
-
 
 router = APIRouter(prefix="/app/payments", tags=["App Payments"])
 
@@ -201,19 +202,19 @@ def purchase_monthly_plan(
                 rides_included=rides_included,
                 rides_used_ida=0,
                 rides_used_vuelta=0,
-                activated_at=date.today(),
+                activated_at=now_local().replace(tzinfo=None),
                 notes="Compra desde app",
             )
         else:
             sub.plan_type = PlanType[payload.plan_type]
             sub.payment_status = PaymentStatus.PAGADO
             sub.rides_included = rides_included
-            sub.activated_at = date.today()
+            sub.activated_at = now_local().replace(tzinfo=None)
             sub.notes = "Compra/renovación desde app"
 
         db.add(sub)
+        db.flush()
 
-        # Rotar token QR al activar/renovar plan
         create_or_rotate_token(db, passenger.id)
 
         return {
@@ -229,52 +230,5 @@ def purchase_monthly_plan(
                 "plan_type": payload.plan_type,
                 "payment_status": "PAGADO",
                 "rides_included": rides_included,
-            },
-        }
-
-
-@router.post("/daily-pass/purchase", dependencies=[Depends(security)])
-def purchase_daily_pass(
-    payload: DailyPassPurchaseIn,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-):
-    token = credentials.credentials
-
-    if payload.trip_type not in ["IDA", "VUELTA"]:
-        raise HTTPException(
-            status_code=400,
-            detail="trip_type inválido. Usa IDA o VUELTA.",
-        )
-
-    with get_db() as db:
-        passenger = get_passenger_from_token(db, token)
-        if not passenger:
-            raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
-        dp = DailyPass(
-            passenger_id=passenger.id,
-            service_date=payload.service_date,
-            trip_type=payload.trip_type,
-            payment_status=PaymentStatus.PAGADO,
-            reservation_status=ReservationStatus.CONFIRMADO,
-        )
-
-        db.add(dp)
-        db.flush()
-
-        return {
-            "ok": True,
-            "message": "Pase diario creado correctamente.",
-            "passenger": {
-                "id": str(passenger.id),
-                "full_name": passenger.full_name,
-                "code": passenger.code,
-            },
-            "daily_pass": {
-                "id": dp.id,
-                "service_date": payload.service_date,
-                "trip_type": payload.trip_type,
-                "payment_status": "PAGADO",
-                "reservation_status": "CONFIRMADO",
             },
         }
