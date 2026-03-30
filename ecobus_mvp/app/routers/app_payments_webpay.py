@@ -31,7 +31,7 @@ from app.services.webpay_rest import (
 # IMPORTANTE:
 # usa aquí los mismos imports reales que ya tienes funcionando en tu app
 # para seguridad y resolución de pasajero autenticado.
-from app.main import security, get_passenger_from_token
+from app.auth_helpers import security, get_passenger_from_token
 
 
 router = APIRouter(prefix="/app/payments/webpay", tags=["app-payments-webpay"])
