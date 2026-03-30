@@ -272,3 +272,62 @@ class OneTimeToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+class PaymentIntentKind(str, PyEnum):
+    MONTHLY_PLAN = "MONTHLY_PLAN"
+    DAILY_PASS = "DAILY_PASS"
+
+
+class PaymentIntentStatus(str, PyEnum):
+    PENDING = "PENDING"
+    AUTHORIZED = "AUTHORIZED"
+    FAILED = "FAILED"
+    ABORTED = "ABORTED"
+
+
+class PaymentIntent(Base):
+    __tablename__ = "payment_intents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    passenger_id: Mapped[uuid.UUID] = mapped_column(
+        _uuid_col(),
+        ForeignKey("passengers.id"),
+        index=True,
+        nullable=False,
+    )
+
+    kind: Mapped[PaymentIntentKind] = mapped_column(
+        SAEnum(PaymentIntentKind, name="payment_intent_kind_enum"),
+        index=True,
+        nullable=False,
+    )
+
+    status: Mapped[PaymentIntentStatus] = mapped_column(
+        SAEnum(PaymentIntentStatus, name="payment_intent_status_enum"),
+        index=True,
+        nullable=False,
+        default=PaymentIntentStatus.PENDING,
+    )
+
+    buy_order: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    session_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    webpay_token: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    webpay_response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    authorization_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    transaction_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    passenger: Mapped["Passenger"] = relationship()
