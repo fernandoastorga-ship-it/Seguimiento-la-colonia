@@ -3,12 +3,11 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import and_, desc, select
+from pydantic import BaseModel
 
 from app.db import get_db
-from app.models import DailyPass, Subscription, PaymentStatus, ReservationStatus, PlanType
+from app.models import DailyPass, Subscription, PlanType, PaymentStatus, ReservationStatus
 from app.services.auth_service import get_passenger_from_token
-from pydantic import BaseModel
-from app.models import Passenger, PaymentStatus, ReservationStatus, PlanType
 
 router = APIRouter(prefix="/app/payments", tags=["App Payments"])
 
