@@ -154,31 +154,42 @@
     stopBtn.disabled = false;
 
     try{
-      // cierra stream previo
+      // cerrar stream previo
       if (stream){
         try { stream.getTracks().forEach(t => t.stop()); } catch {}
         stream = null;
       }
 
-      // 3 intentos (iOS-friendly) - FORZAR TRASERA
+      // 3 intentos (mobile-friendly) - FORZAR FRONTAL
       try {
-        // 1) forzar environment (si iOS lo permite)
+        // 1) forzar user (frontal) si el dispositivo lo permite
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            facingMode: { exact: "user" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
       } catch (e0) {
         try {
-          // 2) environment ideal (más permisivo)
+          // 2) user ideal (más permisivo)
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: {
+              facingMode: { ideal: "user" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
             audio: false
           });
         } catch (e1) {
           try {
             // 3) sin facingMode
             stream = await navigator.mediaDevices.getUserMedia({
-              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+              video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              },
               audio: false
             });
           } catch (e2) {
@@ -186,7 +197,7 @@
             stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           }
         }
-      }
+     }
 
       if (!stream) throw new Error("No se obtuvo stream de cámara");
 
@@ -198,34 +209,30 @@
       running = true;
       lastToken = null;
 
-      const ZX = window.ZXingBrowser || window.ZXing;
+     const ZX = window.ZXingBrowser || window.ZXing;
       if (!ZX) throw new Error("ZXing no cargó");
 
       zxingReader = new ZX.BrowserQRCodeReader();
 
-      // Listar cámaras y preferir trasera si existe
+      // Listar cámaras y preferir frontal si existe
       let deviceId = null;
       try {
         const devices = await ZX.BrowserCodeReader.listVideoInputDevices();
 
         if (devices && devices.length) {
-          // 1) si hay labels, buscar trasera
-          const back = devices.find(d => /back|rear|environment/i.test(d.label || ""));
-          if (back) deviceId = back.deviceId;
+          // 1) si hay labels, buscar frontal
+          const front = devices.find(d => /front|user|facetime/i.test(d.label || ""));
+          if (front) deviceId = front.deviceId;
 
-          // 2) si NO hay labels (iOS), normalmente la última suele ser la trasera
-          if (!deviceId && devices.length >= 2) {
-            deviceId = devices[devices.length - 1].deviceId;
+          // 2) fallback: normalmente la primera suele ser frontal en varios equipos
+          if (!deviceId && devices.length >= 1) {
+            deviceId = devices[0].deviceId;
           }
-
-          // 3) fallback final
-          if (!deviceId) deviceId = devices[0].deviceId;
         }
       } catch (e) {
         // si falla listar, dejamos deviceId null
       }
 
-      // ✅ Método compatible iPhone/Android
       await zxingReader.decodeFromVideoDevice(deviceId, video, async (result, err) => {
         if (!running) return;
         if (result){
