@@ -49,8 +49,11 @@ from app.routes import (
 from .utils import now_local, today_local, month_start, end_of_month, in_time_window, generate_token, next_passenger_code
 from app.qr_helpers import make_qr_png, create_or_rotate_token
 from fastapi.middleware.cors import CORSMiddleware
+from app.routers.app_payments_webpay import router as app_payments_webpay_router
 
 app = FastAPI(title="Ecobus MVP Control Pasajeros", version="0.1.0")
+
+app.include_router(app_payments_webpay_router)
 
 app.add_middleware(
     CORSMiddleware,
