@@ -2,13 +2,6 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, date
-from pydantic import BaseModel
-from fastapi.responses import RedirectResponse
-from transbank.webpay.webpay_plus.transaction import Transaction
-from transbank.common.options import WebpayOptions
-from transbank.common.integration_type import IntegrationType
-import uuid
-from datetime import datetime, date
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
@@ -37,27 +30,6 @@ def _uuid_col():
     except Exception:
         return String(36)
 
-def get_webpay_options():
-    import os
-
-    commerce_code = os.getenv("TBK_COMMERCE_CODE", "597055555532")
-    api_key = os.getenv("TBK_API_KEY", "597055555532")
-    env = os.getenv("TBK_ENV", "integration").lower()
-
-    integration_type = (
-        IntegrationType.TEST if env == "integration" else IntegrationType.LIVE
-    )
-
-    return WebpayOptions(commerce_code, api_key, integration_type)
-
-class MonthlyPlanCheckoutIn(BaseModel):
-    month: date
-    plan_type: str
-
-
-class DailyPassCheckoutIn(BaseModel):
-    service_date: date
-    trip_type: str
 
 class Base(DeclarativeBase):
     pass
@@ -299,105 +271,4 @@ class OneTimeToken(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-@router.post("/monthly-plan/checkout", dependencies=[Depends(security)])
-def create_monthly_plan_checkout(
-    payload: MonthlyPlanCheckoutIn,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-):
-    import os
-
-    token = credentials.credentials
-
-    if payload.plan_type not in PLAN_PRICES:
-        raise HTTPException(status_code=400, detail="PlanType inválido")
-
-    with get_db() as db:
-        passenger = get_passenger_from_token(db, token)
-        if not passenger:
-            raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
-        buy_order = f"plan-{uuid.uuid4().hex[:26]}"
-        session_id = str(passenger.id)
-        amount = PLAN_PRICES[payload.plan_type]
-
-        return_url = f"{os.getenv('APP_BASE_URL')}/app/payments/webpay/return"
-
-        tx = Transaction(get_webpay_options())
-        response = tx.create(buy_order, session_id, amount, return_url)
-
-        # aquí debes guardar tu payment_intent en BD
-        # kind=MONTHLY_PLAN, buy_order=buy_order, payload_json={month, plan_type}, status=PENDING
-
-        return {
-            "ok": True,
-            "payment_url": response["url"],
-            "token": response["token"],
-        }
-@router.post("/daily-pass/checkout", dependencies=[Depends(security)])
-def create_daily_pass_checkout(
-    payload: DailyPassCheckoutIn,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-):
-    import os
-
-    token = credentials.credentials
-
-    if payload.trip_type not in ["IDA", "VUELTA"]:
-        raise HTTPException(status_code=400, detail="trip_type inválido")
-
-    with get_db() as db:
-        passenger = get_passenger_from_token(db, token)
-        if not passenger:
-            raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
-        buy_order = f"daily-{uuid.uuid4().hex[:26]}"
-        session_id = str(passenger.id)
-        amount = DAILY_PASS_PRICE
-
-        return_url = f"{os.getenv('APP_BASE_URL')}/app/payments/webpay/return"
-
-        tx = Transaction(get_webpay_options())
-        response = tx.create(buy_order, session_id, amount, return_url)
-
-        # aquí debes guardar tu payment_intent en BD
-        # kind=DAILY_PASS, buy_order=buy_order, payload_json={service_date, trip_type}, status=PENDING
-
-        return {
-            "ok": True,
-            "payment_url": response["url"],
-            "token": response["token"],
-        }
-@router.post("/webpay/return")
-def webpay_return(token_ws: str):
-    import os
-
-    with get_db() as db:
-        tx = Transaction(get_webpay_options())
-        result = tx.commit(token_ws)
-
-        buy_order = result.get("buy_order")
-        status = result.get("status")
-        response_code = result.get("response_code", -1)
-
-        # busca payment_intent por buy_order
-        # intent = ...
-
-        if status == "AUTHORIZED" and response_code == 0:
-            # marca intent como PAID
-            # payload = json.loads(intent.payload_json)
-
-            # si intent.kind == "MONTHLY_PLAN":
-            #   reutiliza tu lógica de activate_subscription
-            # si intent.kind == "DAILY_PASS":
-            #   reutiliza tu lógica de create_daily_pass
-
-            return RedirectResponse(
-                url=f"{os.getenv('FRONTEND_BASE_URL')}/payments?payment=success"
-            )
-
-        # si falla
-        return RedirectResponse(
-            url=f"{os.getenv('FRONTEND_BASE_URL')}/payments?payment=failed"
-        )
 
