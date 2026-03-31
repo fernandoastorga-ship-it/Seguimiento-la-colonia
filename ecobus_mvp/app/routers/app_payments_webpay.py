@@ -241,6 +241,7 @@ def init_monthly_plan_payment(
                 {
                     "month": payload.month.isoformat(),
                     "plan_type": payload.plan_type,
+                    "use_webpay_fee": payload.use_webpay_fee,
                 }
             ),
             webpay_token=webpay_resp.get("token"),
@@ -301,6 +302,7 @@ def init_daily_pass_payment(
                 {
                     "service_date": payload.service_date.isoformat(),
                     "trip_type": payload.trip_type,
+                    "use_webpay_fee": payload.use_webpay_fee,
                 }
             ),
             webpay_token=webpay_resp.get("token"),
@@ -338,8 +340,8 @@ def webpay_return_get(
 
 
 def _handle_webpay_return(token_ws: Optional[str], tbk_token: Optional[str]):
-    # Casos de aborto / retorno no exitoso
-    if tbk_token and not token_ws:
+    # Webpay abortado/cancelado por el usuario
+    if tbk_token:
         return RedirectResponse(
             url=_build_frontend_payments_url("aborted"),
             status_code=303,
