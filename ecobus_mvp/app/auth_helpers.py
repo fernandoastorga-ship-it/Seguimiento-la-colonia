@@ -16,7 +16,7 @@ security = HTTPBearer()
 def get_passenger_from_token(db: Session, token: str) -> Passenger:
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-    session = (
+    user_session = (
         db.query(UserSession)
         .filter(
             UserSession.token_hash == token_hash,
@@ -26,13 +26,13 @@ def get_passenger_from_token(db: Session, token: str) -> Passenger:
         .first()
     )
 
-    if not session:
+    if not user_session:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
     passenger = (
         db.query(Passenger)
         .filter(
-            Passenger.id == session.passenger_id,
+            Passenger.id == user_session.passenger_id,
             Passenger.is_deleted == False,
             Passenger.is_active == True,
         )
