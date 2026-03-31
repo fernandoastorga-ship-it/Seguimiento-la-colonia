@@ -56,11 +56,13 @@ DAILY_PASS_PRICE = 2000  # AJUSTA ESTE VALOR AL REAL DE TU NEGOCIO
 class MonthlyPlanCheckoutIn(BaseModel):
     month: date
     plan_type: str
+    use_webpay_fee: bool = False
 
 
 class DailyPassCheckoutIn(BaseModel):
     service_date: date
     trip_type: str
+    use_webpay_fee: bool = False
 
 
 # ----------------------------
@@ -217,6 +219,9 @@ def init_monthly_plan_payment(
         buy_order = _safe_buy_order("mp")
         session_id = _safe_session_id(str(passenger.id))
         amount = PLAN_PRICES[payload.plan_type]
+        
+        if payload.use_webpay_fee:
+            amount = int(round(amount * 1.05))
 
         webpay_resp = webpay_create_transaction(
             buy_order=buy_order,
@@ -274,6 +279,9 @@ def init_daily_pass_payment(
         buy_order = _safe_buy_order("dp")
         session_id = _safe_session_id(str(passenger.id))
         amount = DAILY_PASS_PRICE
+
+        if payload.use_webpay_fee:
+            amount = int(round(amount * 1.05))
 
         webpay_resp = webpay_create_transaction(
             buy_order=buy_order,
