@@ -464,7 +464,7 @@ def render_planes_mensuales():
     
     mode = st.radio(
         "Modo de visualización",
-        ["Mes calendario"],
+        ["Vigentes hoy", "Mes calendario"],
         horizontal=True,
         key="subs_view_mode",
     )
@@ -515,6 +515,7 @@ def render_planes_mensuales():
             "rides_used_total": used_total,
             "rides_remaining": remaining,
             "activated_at": s.activated_at,
+            "expires_at": s.expires_at,
         })
 
     if subs_rows:
