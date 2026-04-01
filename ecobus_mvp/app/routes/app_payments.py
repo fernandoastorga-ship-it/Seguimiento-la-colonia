@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -16,6 +16,7 @@ from app.models import (
     TransferRequestStatus,
     TransferRequestType,
 )
+from app.utils import now_local
 from app.schemas import TransferNotifyIn, TransferRequestOut
 from app.services.auth_service import get_passenger_from_token
 
@@ -43,15 +44,19 @@ def _month_start(d: date) -> date:
 
 
 def _get_current_subscription(db, passenger_id, today: date):
-    ms = _month_start(today)
+    now_dt = now_local().replace(tzinfo=None)
 
     stmt = (
         select(Subscription)
         .where(
             and_(
                 Subscription.passenger_id == passenger_id,
-                Subscription.month == ms,
                 Subscription.is_deleted == False,
+                Subscription.payment_status == PaymentStatus.PAGADO,
+                Subscription.activated_at != None,
+                Subscription.expires_at != None,
+                Subscription.activated_at <= now_dt,
+                Subscription.expires_at >= now_dt,
             )
         )
         .order_by(desc(Subscription.activated_at), desc(Subscription.id))
@@ -104,6 +109,7 @@ def get_payment_status(
             "plan_type": None,
             "payment_status": None,
             "activated_at": None,
+            "expires_at": None,
             "rides_included": 0,
             "rides_used": 0,
             "rides_remaining": 0,
@@ -121,6 +127,7 @@ def get_payment_status(
                 "plan_type": subscription.plan_type.value,
                 "payment_status": subscription.payment_status.value,
                 "activated_at": subscription.activated_at,
+                "expires_at": subscription.expires_at,
                 "rides_included": rides_included,
                 "rides_used": rides_used,
                 "rides_remaining": rides_remaining,
@@ -261,6 +268,9 @@ def purchase_monthly_plan(
             )
         ).scalar_one_or_none()
 
+        now_dt = now_local().replace(tzinfo=None)
+        expires_dt = now_dt + timedelta(days=30)
+
         if not sub:
             sub = Subscription(
                 passenger_id=passenger.id,
@@ -270,14 +280,16 @@ def purchase_monthly_plan(
                 rides_included=rides_included,
                 rides_used_ida=0,
                 rides_used_vuelta=0,
-                activated_at=date.today(),
+                activated_at=now_dt,
+                expires_at=expires_dt,
                 notes="Compra desde app",
             )
         else:
             sub.plan_type = PlanType[payload.plan_type]
             sub.payment_status = PaymentStatus.PAGADO
             sub.rides_included = rides_included
-            sub.activated_at=date.today()
+            sub.activated_at = now_dt
+            sub.expires_at = expires_dt
             sub.notes = "Compra/renovación desde app"
 
         db.add(sub)
