@@ -839,16 +839,16 @@ def render_transferencias_pendientes():
     st.subheader("Transferencias pendientes")
 
     if st.session_state.last_transfer_qr_png:
-    st.success("Último QR de pase diario generado correctamente.")
-    st.download_button(
-        label="Descargar último QR generado (PNG)",
-        data=st.session_state.last_transfer_qr_png,
-        file_name=st.session_state.last_transfer_qr_filename or "qr_pase_diario.png",
-        mime="image/png",
-        key="download_last_transfer_qr",
-    )
-    if st.session_state.last_transfer_qr_url:
-        st.caption(f"Link QR: {st.session_state.last_transfer_qr_url}")
+        st.success("Último QR de pase diario generado correctamente.")
+        st.download_button(
+           label="Descargar último QR generado (PNG)",
+           data=st.session_state.last_transfer_qr_png,
+           file_name=st.session_state.last_transfer_qr_filename or "qr_pase_diario.png",
+           mime="image/png",
+           key="download_last_transfer_qr",
+        )  
+        if st.session_state.last_transfer_qr_url:
+            st.caption(f"Link QR: {st.session_state.last_transfer_qr_url}")
 
     with get_db() as db:
         rows = db.execute(
