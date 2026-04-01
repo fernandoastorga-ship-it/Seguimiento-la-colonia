@@ -119,6 +119,10 @@ def root():
 def healthz():
     return {"ok": True}
 
+@app.get("/__debug_route_test")
+def debug_route_test():
+    return {"ok": True, "message": "ruta cargada"}
+
 
 @app.get("/scan", response_class=HTMLResponse)
 def scan_page(pin: str | None = None):
