@@ -8,7 +8,7 @@ import qrcode
 from fastapi import FastAPI, HTTPException, Response, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, and_, func, desc
+from sqlalchemy import select, and_, func, desc, text
 
 from .config import settings
 from .db import ENGINE, get_db
