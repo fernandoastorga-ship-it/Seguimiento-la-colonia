@@ -22,6 +22,11 @@ from app.models import (
     QrToken,
     TokenStatus,
     CheckinResult,
+    TransferRequest,
+    TransferRequestStatus,
+    TransferRequestType,
+    OneTimeToken,
+    OneTimeTokenStatus,
 )
 from app.main import make_qr_png, create_or_rotate_token
 from app.utils import now_local
@@ -54,7 +59,14 @@ PLAN_PRICES = {
 # TABS (UI ordenada)
 # =========================
 
-tabs = st.tabs(["Dashboard día", "Pasajeros", "Planes mensuales", "Pase diario", "Finanzas"])
+tabs = st.tabs([
+    "Dashboard día",
+    "Pasajeros",
+    "Planes mensuales",
+    "Pase diario",
+    "Finanzas",
+    "Transferencias pendientes",
+])
 
 
 def render_dashboard_dia():
@@ -649,6 +661,232 @@ def render_pase_diario():
         else:
             st.success("Solicitud creada. Cuando esté PAGADO + CONFIRMADO, genera el QR.")
 
+
+def _plan_rides_from_type(plan_type_value: str) -> int:
+    plan_map = {
+        "VIAJES_10": 10,
+        "VIAJES_20": 20,
+        "VIAJES_30": 30,
+        "VIAJES_40": 40,
+    }
+    if plan_type_value not in plan_map:
+        raise ValueError(f"Plan no soportado: {plan_type_value}")
+    return plan_map[plan_type_value]
+
+
+def _approve_transfer_request(db, tr: TransferRequest, admin_note: str | None = None):
+    if tr.status != TransferRequestStatus.PENDING:
+        raise ValueError("La solicitud ya fue revisada.")
+
+    payload = tr.payload or {}
+    passenger = db.get(Passenger, tr.passenger_id)
+    if not passenger:
+        raise ValueError("No existe el pasajero asociado a la solicitud.")
+
+    if tr.request_type == TransferRequestType.MONTHLY:
+        month_raw = payload.get("month")
+        plan_type_raw = payload.get("plan_type")
+
+        if not month_raw or not plan_type_raw:
+            raise ValueError("Payload incompleto para transferencia mensual.")
+
+        month_value = date.fromisoformat(month_raw)
+        plan_enum = PlanType[plan_type_raw]
+        rides_included = _plan_rides_from_type(plan_type_raw)
+
+        sub = db.execute(
+            select(Subscription).where(
+                and_(
+                    Subscription.passenger_id == passenger.id,
+                    Subscription.month == month_value,
+                    Subscription.is_deleted == False,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not sub:
+            sub = Subscription(
+                passenger_id=passenger.id,
+                month=month_value,
+                plan_type=plan_enum,
+                payment_status=PaymentStatus.PAGADO,
+                rides_included=rides_included,
+                rides_used_ida=0,
+                rides_used_vuelta=0,
+                activated_at=now_local().replace(tzinfo=None),
+                notes="Aprobado por transferencia manual",
+            )
+        else:
+            sub.plan_type = plan_enum
+            sub.payment_status = PaymentStatus.PAGADO
+            sub.rides_included = rides_included
+            sub.activated_at = now_local().replace(tzinfo=None)
+            prev = sub.notes or ""
+            sub.notes = (prev + "\n" if prev else "") + "Actualizado por aprobación de transferencia manual"
+
+        db.add(sub)
+
+        # Mantener consistencia con tu lógica actual: rotar QR al activar plan
+        create_or_rotate_token(db, passenger.id)
+
+    elif tr.request_type == TransferRequestType.DAILY:
+        service_date_raw = payload.get("service_date")
+        trip_type_raw = payload.get("trip_type")
+
+        if not service_date_raw or not trip_type_raw:
+            raise ValueError("Payload incompleto para transferencia de pase diario.")
+
+        service_date_value = date.fromisoformat(service_date_raw)
+        trip_type_enum = TripType(trip_type_raw)
+
+        dp = db.execute(
+            select(DailyPass).where(
+                and_(
+                    DailyPass.passenger_id == passenger.id,
+                    DailyPass.service_date == service_date_value,
+                    DailyPass.trip_type == trip_type_enum,
+                    DailyPass.is_deleted == False,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not dp:
+            dp = DailyPass(
+                passenger_id=passenger.id,
+                service_date=service_date_value,
+                trip_type=trip_type_enum,
+                payment_status=PaymentStatus.PAGADO,
+                reservation_status=ReservationStatus.CONFIRMADO,
+            )
+            db.add(dp)
+            db.flush()
+        else:
+            dp.payment_status = PaymentStatus.PAGADO
+            dp.reservation_status = ReservationStatus.CONFIRMADO
+            db.add(dp)
+            db.flush()
+
+        # Generar QR 1-uso si no existe uno activo para ese pase
+        existing_ot = db.execute(
+            select(OneTimeToken).where(
+                and_(
+                    OneTimeToken.daily_pass_id == dp.id,
+                    OneTimeToken.status == OneTimeTokenStatus.ACTIVE,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not existing_ot:
+            from app.utils import generate_token
+
+            token = generate_token()
+            ot = OneTimeToken(
+                passenger_id=passenger.id,
+                daily_pass_id=dp.id,
+                token=token,
+                service_date=service_date_value,
+                trip_type=trip_type_enum,
+                status=OneTimeTokenStatus.ACTIVE,
+            )
+            db.add(ot)
+
+    else:
+        raise ValueError("Tipo de transferencia no soportado.")
+
+    tr.status = TransferRequestStatus.APPROVED
+    tr.reviewed_at = now_local().replace(tzinfo=None)
+    tr.reviewed_by = "admin_streamlit"
+    tr.admin_notes = admin_note or None
+    db.add(tr)
+
+
+def _reject_transfer_request(db, tr: TransferRequest, admin_note: str | None = None):
+    if tr.status != TransferRequestStatus.PENDING:
+        raise ValueError("La solicitud ya fue revisada.")
+
+    tr.status = TransferRequestStatus.REJECTED
+    tr.reviewed_at = now_local().replace(tzinfo=None)
+    tr.reviewed_by = "admin_streamlit"
+    tr.admin_notes = admin_note or None
+    db.add(tr)
+
+
+def render_transferencias_pendientes():
+    st.subheader("Transferencias pendientes")
+
+    with get_db() as db:
+        rows = db.execute(
+            select(TransferRequest, Passenger)
+            .join(Passenger, Passenger.id == TransferRequest.passenger_id)
+            .where(TransferRequest.status == TransferRequestStatus.PENDING)
+            .order_by(TransferRequest.created_at.asc(), TransferRequest.id.asc())
+        ).all()
+
+    if not rows:
+        st.success("No hay transferencias pendientes.")
+        return
+
+    st.write(f"Pendientes: {len(rows)}")
+
+    for tr, p in rows:
+        with st.container(border=True):
+            st.markdown(f"### Solicitud #{tr.id}")
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                st.write(f"**Pasajero:** {p.full_name}")
+                st.write(f"**Código:** {p.code}")
+
+            with c2:
+                st.write(f"**Tipo:** {tr.request_type.value}")
+                st.write(f"**Fecha solicitud:** {tr.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+
+            with c3:
+                st.write(f"**Estado:** {tr.status.value}")
+                st.write(f"**Email:** {p.email or '—'}")
+
+            st.markdown("**Payload:**")
+            st.json(tr.payload)
+
+            if tr.notes:
+                st.markdown(f"**Nota pasajero:** {tr.notes}")
+
+            admin_note = st.text_area(
+                "Nota admin",
+                key=f"tr_admin_note_{tr.id}",
+                placeholder="Opcional: observación interna",
+            )
+
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                if st.button(f"Aprobar #{tr.id}", key=f"approve_transfer_{tr.id}", use_container_width=True):
+                    try:
+                        with get_db() as db:
+                            tr_db = db.get(TransferRequest, tr.id)
+                            if not tr_db:
+                                st.error("La solicitud ya no existe.")
+                            else:
+                                _approve_transfer_request(db, tr_db, admin_note)
+                        st.success(f"Solicitud #{tr.id} aprobada correctamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al aprobar solicitud #{tr.id}: {e}")
+
+            with col_b:
+                if st.button(f"Rechazar #{tr.id}", key=f"reject_transfer_{tr.id}", use_container_width=True):
+                    try:
+                        with get_db() as db:
+                            tr_db = db.get(TransferRequest, tr.id)
+                            if not tr_db:
+                                st.error("La solicitud ya no existe.")
+                            else:
+                                _reject_transfer_request(db, tr_db, admin_note)
+                        st.warning(f"Solicitud #{tr.id} rechazada.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al rechazar solicitud #{tr.id}: {e}")
+
 def render_finanzas():
     st.subheader("Finanzas")
 
@@ -950,6 +1188,9 @@ with tabs[3]:
 
 with tabs[4]:
     render_finanzas()
+
+with tabs[5]:
+    render_transferencias_pendientes()
 
 st.markdown("---")
 st.caption("Config: Render + Postgres recomendado. TZ y ventanas horarias desde variables de entorno.")
