@@ -754,3 +754,52 @@ def run_auth_migration():
         db.commit()
 
     return {"ok": True, "message": "Migración ejecutada correctamente"}
+
+@app.get("/__run_migration_subscription_30d")
+def run_subscription_30d_migration():
+    from sqlalchemy import text
+
+    stmts = [
+        """
+        ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP NULL;
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS ix_subscriptions_expires_at
+        ON subscriptions(expires_at);
+        """,
+        # Si activated_at existe, expires_at = activated_at + 30 días
+        """
+        UPDATE subscriptions
+        SET expires_at = activated_at + INTERVAL '30 days'
+        WHERE activated_at IS NOT NULL
+          AND expires_at IS NULL;
+        """,
+        # Fallback para registros antiguos sin activated_at: usar month + 30 días
+        """
+        UPDATE subscriptions
+        SET expires_at = (month::timestamp + INTERVAL '30 days')
+        WHERE activated_at IS NULL
+          AND month IS NOT NULL
+          AND expires_at IS NULL;
+        """,
+        # Extender QR activo del pasajero hasta la vigencia del plan, sin cambiar token
+        """
+        UPDATE qr_tokens qt
+        SET valid_to = s.expires_at
+        FROM subscriptions s
+        WHERE qt.passenger_id = s.passenger_id
+          AND qt.status = 'ACTIVE'
+          AND s.payment_status = 'PAGADO'
+          AND s.is_deleted = FALSE
+          AND s.expires_at IS NOT NULL
+          AND (qt.valid_to IS NULL OR qt.valid_to < s.expires_at);
+        """,
+    ]
+
+    with get_db() as db:
+        for stmt in stmts:
+            db.execute(text(stmt))
+        db.commit()
+
+    return {"ok": True, "message": "Migración de vigencia 30 días aplicada."}
