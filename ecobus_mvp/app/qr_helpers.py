@@ -23,9 +23,8 @@ def make_qr_png(content: str) -> bytes:
     return buf.getvalue()
 
 
-def create_or_rotate_token(db, passenger_id) -> str:
-    # Revoke previous active token and create a new one for current month
-    now = now_local()
+def create_or_rotate_token(db, passenger_id, valid_to_override=None, keep_existing_if_active=True) -> str:
+    now = now_local().replace(tzinfo=None)
 
     stmt = select(QrToken).where(
         and_(
@@ -33,20 +32,37 @@ def create_or_rotate_token(db, passenger_id) -> str:
             QrToken.status == TokenStatus.ACTIVE,
         )
     )
-    for t in db.execute(stmt).scalars().all():
-        t.status = TokenStatus.REVOKED
-        db.add(t)
+    existing_tokens = db.execute(stmt).scalars().all()
 
+    if keep_existing_if_active and existing_tokens:
+        # Tomamos el más reciente
+        existing_tokens = sorted(existing_tokens, key=lambda x: x.valid_to or now, reverse=True)
+        current = existing_tokens[0]
+
+        # Revocar duplicados extra si existieran
+        for extra in existing_tokens[1:]:
+            extra.status = TokenStatus.REVOKED
+            db.add(extra)
+
+        new_valid_to = valid_to_override.replace(tzinfo=None) if valid_to_override else current.valid_to
+        if new_valid_to and (current.valid_to is None or current.valid_to < new_valid_to):
+            current.valid_to = new_valid_to
+            db.add(current)
+
+        db.flush()
+        return current.token
+
+    # Si no hay token activo, crear uno nuevo
     token = generate_token()
     valid_from = now
-    valid_to = end_of_month(now)
+    valid_to = valid_to_override.replace(tzinfo=None) if valid_to_override else end_of_month(now).replace(tzinfo=None)
 
     tnew = QrToken(
         passenger_id=passenger_id,
         token=token,
         status=TokenStatus.ACTIVE,
-        valid_from=valid_from.replace(tzinfo=None),
-        valid_to=valid_to.replace(tzinfo=None),
+        valid_from=valid_from,
+        valid_to=valid_to,
     )
     db.add(tnew)
     db.flush()
