@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from datetime import date
-from pydantic import BaseModel, EmailStr, Field
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from datetime import date, datetime
+from typing import Optional, Literal
 
-from .models import PickupPoint, PlanType, PaymentStatus, TripType, ReservationStatus
+from pydantic import BaseModel, EmailStr, Field
+
+from .models import (
+    PickupPoint,
+    PlanType,
+    PaymentStatus,
+    TripType,
+    ReservationStatus,
+)
 
 
 class PassengerCreate(BaseModel):
@@ -98,3 +104,26 @@ class OtpVerifyOut(BaseModel):
     access_token: str
     expires_in_seconds: int
     passenger: AuthMeOut
+
+class TransferNotifyIn(BaseModel):
+    request_type: Literal["MONTHLY", "DAILY"]
+    payload: dict
+    notes: str | None = None
+
+
+class TransferRequestOut(BaseModel):
+    id: int
+    passenger_id: str
+    request_type: str
+    status: str
+    payload: dict
+    notes: str | None = None
+    admin_notes: str | None = None
+    created_at: datetime
+    reviewed_at: datetime | None = None
+    reviewed_by: str | None = None
+
+
+class TransferReviewIn(BaseModel):
+    admin_notes: str | None = None
+    reviewed_by: str | None = None
