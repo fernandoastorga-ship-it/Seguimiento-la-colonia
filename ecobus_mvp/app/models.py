@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
@@ -165,6 +165,7 @@ class Subscription(Base):
     rides_used_vuelta: Mapped[int] = mapped_column(Integer, default=0)
 
     activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     passenger: Mapped[Passenger] = relationship(back_populates="subscriptions")
