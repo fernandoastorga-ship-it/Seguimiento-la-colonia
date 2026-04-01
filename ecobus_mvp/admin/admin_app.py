@@ -461,6 +461,14 @@ def render_pasajeros():
 
 def render_planes_mensuales():
     st.subheader("Planes mensuales")
+    
+    mode = st.radio(
+        "Modo de visualización",
+        ["Vigentes hoy", "Mes calendario"],
+        horizontal=True,
+        key="subs_view_mode",
+    )
+
 
     month = st.date_input(
         "Mes (usar 1er día del mes)",
@@ -469,13 +477,27 @@ def render_planes_mensuales():
     )
 
     with get_db() as db:
-        subs = db.execute(
-            select(Subscription, Passenger)
-            .join(Passenger, Passenger.id == Subscription.passenger_id)
-            .where(Subscription.month == month)
-            .where(Subscription.is_deleted == False)
-            .order_by(Passenger.code)
-        ).all()
+        if mode == "Vigentes hoy":
+            now_dt = now_local().replace(tzinfo=None)
+            subs = db.execute(
+                select(Subscription, Passenger)
+                .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .where(Subscription.is_deleted == False)
+                .where(Subscription.payment_status == PaymentStatus.PAGADO)
+                .where(Subscription.activated_at != None)
+                .where(Subscription.expires_at != None)
+                .where(Subscription.activated_at <= now_dt)
+                .where(Subscription.expires_at >= now_dt)
+                .order_by(Passenger.code)
+            ).all()
+        else:
+            subs = db.execute(
+                select(Subscription, Passenger)
+                .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .where(Subscription.month == month)
+                .where(Subscription.is_deleted == False)
+                .order_by(Passenger.code)
+            ).all()
 
     subs_rows = []
     for s, p in subs:
@@ -492,6 +514,8 @@ def render_planes_mensuales():
             "rides_used_vuelta": s.rides_used_vuelta,
             "rides_used_total": used_total,
             "rides_remaining": remaining,
+            "activated_at": s.activated_at,
+            "expires_at": s.expires_at,
         })
 
     if subs_rows:
