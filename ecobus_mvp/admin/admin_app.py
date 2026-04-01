@@ -75,6 +75,7 @@ tabs = st.tabs([
     "Pase diario",
     "Finanzas",
     "Transferencias pendientes",
+    "Historial transferencias",
 ])
 
 
@@ -931,6 +932,60 @@ def render_transferencias_pendientes():
                     except Exception as e:
                         st.error(f"Error al rechazar solicitud #{tr.id}: {e}")
 
+def render_historial_transferencias():
+    st.subheader("Historial de transferencias")
+
+    status_filter = st.selectbox(
+        "Filtrar por estado",
+        ["TODAS", "APPROVED", "REJECTED"],
+        index=0,
+        key="transfer_history_status_filter",
+    )
+
+    with get_db() as db:
+        stmt = (
+            select(TransferRequest, Passenger)
+            .join(Passenger, Passenger.id == TransferRequest.passenger_id)
+            .order_by(desc(TransferRequest.created_at), desc(TransferRequest.id))
+        )
+
+        if status_filter != "TODAS":
+            stmt = stmt.where(TransferRequest.status == TransferRequestStatus(status_filter))
+        else:
+            stmt = stmt.where(
+                TransferRequest.status.in_([
+                    TransferRequestStatus.APPROVED,
+                    TransferRequestStatus.REJECTED,
+                ])
+            )
+
+        rows = db.execute(stmt).all()
+
+    if not rows:
+        st.info("No hay transferencias en el historial para ese filtro.")
+        return
+
+    data = []
+    for tr, p in rows:
+        data.append({
+            "id": tr.id,
+            "fecha_solicitud": tr.created_at.strftime("%Y-%m-%d %H:%M:%S") if tr.created_at else None,
+            "estado": tr.status.value,
+            "tipo": tr.request_type.value,
+            "codigo": p.code,
+            "pasajero": p.full_name,
+            "email": p.email,
+            "reviewed_at": tr.reviewed_at.strftime("%Y-%m-%d %H:%M:%S") if tr.reviewed_at else None,
+            "reviewed_by": tr.reviewed_by,
+            "nota_pasajero": tr.notes,
+            "nota_admin": tr.admin_notes,
+            "payload": str(tr.payload),
+        })
+
+    dft = pd.DataFrame(data)
+    st.dataframe(dft, use_container_width=True)
+    download_df(dft, "historial_transferencias.csv")
+
 def render_finanzas():
     st.subheader("Finanzas")
 
@@ -1235,6 +1290,9 @@ with tabs[4]:
 
 with tabs[5]:
     render_transferencias_pendientes()
+
+with tabs[6]:
+    render_historial_transferencias()
 
 st.markdown("---")
 st.caption("Config: Render + Postgres recomendado. TZ y ventanas horarias desde variables de entorno.")
