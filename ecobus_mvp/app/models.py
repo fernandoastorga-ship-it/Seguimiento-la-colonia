@@ -199,6 +199,52 @@ class DailyPass(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+class TransferRequestStatus(str, PyEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class TransferRequestType(str, PyEnum):
+    MONTHLY = "MONTHLY"
+    DAILY = "DAILY"
+
+
+class TransferRequest(Base):
+    __tablename__ = "transfer_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    passenger_id: Mapped[uuid.UUID] = mapped_column(
+        _uuid_col(),
+        ForeignKey("passengers.id"),
+        index=True,
+        nullable=False,
+    )
+
+    request_type: Mapped[TransferRequestType] = mapped_column(
+        SAEnum(TransferRequestType, name="transfer_request_type_enum"),
+        nullable=False,
+    )
+
+    status: Mapped[TransferRequestStatus] = mapped_column(
+        SAEnum(TransferRequestStatus, name="transfer_request_status_enum"),
+        default=TransferRequestStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    reviewed_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    passenger = relationship("Passenger")
 
 class Checkin(Base):
     __tablename__ = "checkins"
