@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import qrcode
@@ -297,6 +297,9 @@ def activate_subscription(payload: ActivateSubscriptionIn):
 
         rides_included = PLAN_RIDES[payload.plan_type]
 
+        now_dt = now_local().replace(tzinfo=None)
+        expires_dt = now_dt + timedelta(days=30)
+
         sub = db.execute(
             select(Subscription).where(
                 and_(Subscription.passenger_id == p.id, Subscription.month == payload.month)
@@ -312,22 +315,24 @@ def activate_subscription(payload: ActivateSubscriptionIn):
                 rides_included=rides_included,
                 rides_used_ida=0,
                 rides_used_vuelta=0,
-                activated_at=now_local().replace(tzinfo=None),
+                activated_at=now_dt,
+                expires_at=expires_dt,
                 notes=payload.notes,
             )
         else:
             sub.plan_type = payload.plan_type
             sub.payment_status = payload.payment_status
             sub.rides_included = rides_included
-            sub.activated_at = now_local().replace(tzinfo=None)
+            sub.activated_at = now_dt
+            sub.expires_at = expires_dt
             sub.notes = payload.notes
 
         db.add(sub)
 
-        # Rotar token al activar plan
-        create_or_rotate_token(db, p.id)
+        # Mantener mismo QR si ya existe; solo extender vigencia
+        create_or_rotate_token(db, p.id, valid_to_override=expires_dt, keep_existing_if_active=True)
 
-        return {"ok": True, "message": "Suscripción activada y QR rotado."}
+        return {"ok": True, "message": "Suscripción activada y QR actualizado sin cambiar token."}
 
 
 # ---------- Daily passes ----------
@@ -521,8 +526,16 @@ def validate(
         ms = month_start(service_date)
         sub = db.execute(
             select(Subscription).where(
-                and_(Subscription.passenger_id == p.id, Subscription.month == ms)
-            )
+                and_(
+                    Subscription.passenger_id == p.id,
+                    Subscription.is_deleted == False,
+                    Subscription.payment_status == PaymentStatus.PAGADO,
+                    Subscription.activated_at != None,
+                    Subscription.expires_at != None,
+                    Subscription.activated_at <= now.replace(tzinfo=None),
+                    Subscription.expires_at >= now.replace(tzinfo=None),
+                )
+            ).order_by(desc(Subscription.activated_at), desc(Subscription.id))
         ).scalar_one_or_none()
 
         if sub and sub.payment_status == PaymentStatus.PAGADO:
