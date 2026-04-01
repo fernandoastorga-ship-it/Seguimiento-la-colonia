@@ -781,14 +781,12 @@ def run_subscription_30d_migration():
         CREATE INDEX IF NOT EXISTS ix_subscriptions_expires_at
         ON subscriptions(expires_at);
         """,
-        # Si activated_at existe, expires_at = activated_at + 30 días
         """
         UPDATE subscriptions
         SET expires_at = activated_at + INTERVAL '30 days'
         WHERE activated_at IS NOT NULL
           AND expires_at IS NULL;
         """,
-        # Fallback para registros antiguos sin activated_at: usar month + 30 días
         """
         UPDATE subscriptions
         SET expires_at = (month::timestamp + INTERVAL '30 days')
@@ -796,7 +794,6 @@ def run_subscription_30d_migration():
           AND month IS NOT NULL
           AND expires_at IS NULL;
         """,
-        # Extender QR activo del pasajero hasta la vigencia del plan, sin cambiar token
         """
         UPDATE qr_tokens qt
         SET valid_to = s.expires_at
