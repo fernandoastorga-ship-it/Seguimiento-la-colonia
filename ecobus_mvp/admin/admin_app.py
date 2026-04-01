@@ -37,6 +37,15 @@ st.set_page_config(page_title="Ecobus Admin", layout="wide")
 st.title("Ecobus / Ecovan - Admin MVP")
 st.caption("Panel operativo mínimo (MVP).")
 
+if "last_transfer_qr_png" not in st.session_state:
+    st.session_state.last_transfer_qr_png = None
+
+if "last_transfer_qr_filename" not in st.session_state:
+    st.session_state.last_transfer_qr_filename = None
+
+if "last_transfer_qr_url" not in st.session_state:
+    st.session_state.last_transfer_qr_url = None
+
 
 def download_df(df: pd.DataFrame, fname: str):
     st.download_button(
@@ -683,6 +692,8 @@ def _approve_transfer_request(db, tr: TransferRequest, admin_note: str | None = 
     if not passenger:
         raise ValueError("No existe el pasajero asociado a la solicitud.")
 
+    qr_result = None
+
     if tr.request_type == TransferRequestType.MONTHLY:
         month_raw = payload.get("month")
         plan_type_raw = payload.get("plan_type")
@@ -725,8 +736,6 @@ def _approve_transfer_request(db, tr: TransferRequest, admin_note: str | None = 
             sub.notes = (prev + "\n" if prev else "") + "Actualizado por aprobación de transferencia manual"
 
         db.add(sub)
-
-        # Mantener consistencia con tu lógica actual: rotar QR al activar plan
         create_or_rotate_token(db, passenger.id)
 
     elif tr.request_type == TransferRequestType.DAILY:
@@ -766,7 +775,6 @@ def _approve_transfer_request(db, tr: TransferRequest, admin_note: str | None = 
             db.add(dp)
             db.flush()
 
-        # Generar QR 1-uso si no existe uno activo para ese pase
         existing_ot = db.execute(
             select(OneTimeToken).where(
                 and_(
@@ -776,7 +784,9 @@ def _approve_transfer_request(db, tr: TransferRequest, admin_note: str | None = 
             )
         ).scalar_one_or_none()
 
-        if not existing_ot:
+        if existing_ot:
+            token = existing_ot.token
+        else:
             from app.utils import generate_token
 
             token = generate_token()
@@ -789,6 +799,17 @@ def _approve_transfer_request(db, tr: TransferRequest, admin_note: str | None = 
                 status=OneTimeTokenStatus.ACTIVE,
             )
             db.add(ot)
+            db.flush()
+
+        qr_url = f"{settings.public_base_url.rstrip('/')}/ot/{token}"
+        png_bytes = make_qr_png(qr_url)
+        qr_fname = f"QR_PASE_DIARIO_{passenger.code}_{service_date_value.isoformat()}_{trip_type_enum.value}.png"
+
+        qr_result = {
+            "png_bytes": png_bytes,
+            "filename": qr_fname,
+            "url": qr_url,
+        }
 
     else:
         raise ValueError("Tipo de transferencia no soportado.")
@@ -798,6 +819,8 @@ def _approve_transfer_request(db, tr: TransferRequest, admin_note: str | None = 
     tr.reviewed_by = "admin_streamlit"
     tr.admin_notes = admin_note or None
     db.add(tr)
+
+    return qr_result
 
 
 def _reject_transfer_request(db, tr: TransferRequest, admin_note: str | None = None):
@@ -813,6 +836,18 @@ def _reject_transfer_request(db, tr: TransferRequest, admin_note: str | None = N
 
 def render_transferencias_pendientes():
     st.subheader("Transferencias pendientes")
+
+    if st.session_state.last_transfer_qr_png:
+    st.success("Último QR de pase diario generado correctamente.")
+    st.download_button(
+        label="Descargar último QR generado (PNG)",
+        data=st.session_state.last_transfer_qr_png,
+        file_name=st.session_state.last_transfer_qr_filename or "qr_pase_diario.png",
+        mime="image/png",
+        key="download_last_transfer_qr",
+    )
+    if st.session_state.last_transfer_qr_url:
+        st.caption(f"Link QR: {st.session_state.last_transfer_qr_url}")
 
     with get_db() as db:
         rows = db.execute(
@@ -867,7 +902,16 @@ def render_transferencias_pendientes():
                             if not tr_db:
                                 st.error("La solicitud ya no existe.")
                             else:
-                                _approve_transfer_request(db, tr_db, admin_note)
+                                qr_result = _approve_transfer_request(db, tr_db, admin_note)
+
+                                if qr_result:
+                                    st.session_state.last_transfer_qr_png = qr_result["png_bytes"]
+                                    st.session_state.last_transfer_qr_filename = qr_result["filename"]
+                                    st.session_state.last_transfer_qr_url = qr_result["url"]
+                                else:
+                                    st.session_state.last_transfer_qr_png = None
+                                    st.session_state.last_transfer_qr_filename = None
+                                    st.session_state.last_transfer_qr_url = None
                         st.success(f"Solicitud #{tr.id} aprobada correctamente.")
                         st.rerun()
                     except Exception as e:
