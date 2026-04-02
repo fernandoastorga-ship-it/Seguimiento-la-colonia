@@ -146,7 +146,7 @@ def render_ecobus_header():
 
     with col1:
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), use_container_width=True)
+            st.image(str(LOGO_PATH), width=220)
         else:
             st.warning("Logo no encontrado en admin/assets/ecobus_logo.png")
 
