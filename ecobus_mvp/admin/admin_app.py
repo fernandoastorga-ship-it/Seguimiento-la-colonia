@@ -45,54 +45,119 @@ def inject_ecobus_admin_styles():
         <style>
             :root {
                 --ecobus-green: #5ca52f;
-                --ecobus-green-dark: #3f7d1f;
+                --ecobus-green-dark: #3e7b22;
                 --ecobus-green-soft: #eef7e8;
-                --ecobus-border: #d8e7cc;
-                --ecobus-text: #163020;
+                --ecobus-green-pale: #f6fbf2;
+                --ecobus-border: #dce9d2;
+                --ecobus-text: #183222;
+                --ecobus-muted: #5f6f63;
             }
 
             .stApp {
-                background-color: #f7faf5;
+                background: linear-gradient(180deg, #f6fbf2 0%, #f9fbf8 100%);
             }
 
-            .ecobus-header {
+            .ecobus-topbar {
+                height: 14px;
+                width: 100%;
+                background: linear-gradient(90deg, #3e7b22 0%, #5ca52f 50%, #7bc043 100%);
+                border-radius: 14px;
+                margin-bottom: 14px;
+                box-shadow: 0 6px 18px rgba(92, 165, 47, 0.20);
+            }
+
+            .ecobus-hero {
                 display: flex;
                 align-items: center;
-                gap: 20px;
-                padding: 18px 22px;
-                background: linear-gradient(135deg, #ffffff 0%, #eef7e8 100%);
+                gap: 22px;
+                background: #ffffff;
+                border: 1px solid var(--ecobus-border);
+                border-radius: 18px;
+                padding: 22px 26px;
+                margin-bottom: 22px;
+                box-shadow: 0 12px 28px rgba(0, 0, 0, 0.06);
+            }
+
+            .ecobus-logo-wrap {
+                flex: 0 0 auto;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: linear-gradient(180deg, #f7fbf3 0%, #edf6e6 100%);
                 border: 1px solid var(--ecobus-border);
                 border-radius: 16px;
-                margin-bottom: 22px;
-                box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+                padding: 14px 18px;
+                min-width: 220px;
             }
 
-            .ecobus-header-text h1 {
-                margin: 0;
+            .ecobus-logo-fallback {
+                font-size: 32px;
+                font-weight: 900;
                 color: var(--ecobus-green-dark);
-                font-size: 30px;
-                line-height: 1.1;
+                letter-spacing: 1px;
             }
 
-            .ecobus-header-text p {
-                margin: 6px 0 0 0;
-                color: #4b6353;
+            .ecobus-hero-text {
+                flex: 1;
+            }
+
+            .ecobus-hero-kicker {
+                font-size: 13px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--ecobus-green);
+                margin-bottom: 6px;
+            }
+
+            .ecobus-hero-title {
+                margin: 0;
+                font-size: 34px;
+                line-height: 1.05;
+                font-weight: 900;
+                color: var(--ecobus-green-dark);
+            }
+
+            .ecobus-hero-subtitle {
+                margin-top: 8px;
                 font-size: 15px;
+                color: var(--ecobus-muted);
+                line-height: 1.45;
+            }
+
+            .ecobus-hero-badges {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-top: 14px;
+            }
+
+            .ecobus-badge {
+                display: inline-flex;
+                align-items: center;
+                padding: 8px 12px;
+                border-radius: 999px;
+                background: var(--ecobus-green-soft);
+                border: 1px solid var(--ecobus-border);
+                color: var(--ecobus-green-dark);
+                font-size: 13px;
+                font-weight: 700;
             }
 
             .stTabs [data-baseweb="tab-list"] {
                 gap: 10px;
-                margin-top: 6px;
-                margin-bottom: 10px;
+                margin-top: 2px;
+                margin-bottom: 12px;
             }
 
             .stTabs [data-baseweb="tab"] {
                 background: #ffffff;
-                border-radius: 10px;
+                border-radius: 12px;
                 border: 1px solid var(--ecobus-border);
                 padding: 10px 16px;
                 color: var(--ecobus-text);
-                font-weight: 600;
+                font-weight: 700;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.02);
             }
 
             .stTabs [aria-selected="true"] {
@@ -104,15 +169,15 @@ def inject_ecobus_admin_styles():
             .stButton > button {
                 border-radius: 10px;
                 border: 1px solid var(--ecobus-green);
-                background: var(--ecobus-green-soft);
+                background: #f1f8ea;
                 color: var(--ecobus-green-dark);
-                font-weight: 700;
+                font-weight: 800;
             }
 
             .stButton > button:hover {
                 border-color: var(--ecobus-green-dark);
+                background: #e6f2db;
                 color: var(--ecobus-green-dark);
-                background: #e4f2d8;
             }
 
             div[data-testid="stMetric"] {
@@ -120,20 +185,38 @@ def inject_ecobus_admin_styles():
                 border: 1px solid var(--ecobus-border);
                 border-radius: 14px;
                 padding: 12px;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.03);
             }
 
             div[data-testid="stDataFrame"] {
-                border-radius: 12px;
+                border-radius: 14px;
                 overflow: hidden;
-                border: 1px solid #e6eee0;
+                border: 1px solid #e5eee0;
+                background: #ffffff;
             }
 
             .ecobus-section-title {
                 color: var(--ecobus-green-dark);
-                font-weight: 800;
-                font-size: 24px;
-                margin-top: 6px;
-                margin-bottom: 8px;
+                font-weight: 900;
+                font-size: 25px;
+                margin-top: 8px;
+                margin-bottom: 10px;
+            }
+
+            @media (max-width: 900px) {
+                .ecobus-hero {
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+
+                .ecobus-logo-wrap {
+                    min-width: unset;
+                    width: 100%;
+                }
+
+                .ecobus-hero-title {
+                    font-size: 28px;
+                }
             }
         </style>
         """,
@@ -142,21 +225,34 @@ def inject_ecobus_admin_styles():
 
 
 def render_ecobus_header():
-    col1, col2 = st.columns([1, 4])
+    st.markdown('<div class="ecobus-topbar"></div>', unsafe_allow_html=True)
+
+    col1, col2 = st.columns([1.15, 3.2], gap="medium")
 
     with col1:
+        st.markdown('<div class="ecobus-logo-wrap">', unsafe_allow_html=True)
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=220)
+            st.image(str(LOGO_PATH), width=230)
         else:
-            st.warning("Logo no encontrado en admin/assets/ecobus_logo.png")
+            st.markdown('<div class="ecobus-logo-fallback">ECOBUS</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
         st.markdown(
             """
-            <div class="ecobus-header">
-                <div class="ecobus-header-text">
-                    <h1>Ecobus Admin</h1>
-                    <p>Panel operativo y de control de pasajeros</p>
+            <div class="ecobus-hero">
+                <div class="ecobus-hero-text">
+                    <div class="ecobus-hero-kicker">Panel corporativo</div>
+                    <h1 class="ecobus-hero-title">Ecobus Admin</h1>
+                    <div class="ecobus-hero-subtitle">
+                        Gestión operativa, control de pasajeros, seguimiento de pagos
+                        y administración centralizada del servicio.
+                    </div>
+                    <div class="ecobus-hero-badges">
+                        <span class="ecobus-badge">Operación diaria</span>
+                        <span class="ecobus-badge">Pagos y transferencias</span>
+                        <span class="ecobus-badge">Control de planes y pases</span>
+                    </div>
                 </div>
             </div>
             """,
@@ -165,7 +261,6 @@ def render_ecobus_header():
 
 inject_ecobus_admin_styles()
 render_ecobus_header()
-st.caption("Panel operativo y administrativo Ecobus.")
 
 if "last_transfer_qr_png" not in st.session_state:
     st.session_state.last_transfer_qr_png = None
