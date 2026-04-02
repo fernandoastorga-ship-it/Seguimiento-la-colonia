@@ -88,6 +88,63 @@
   let lastToken = null;
   let zxingReader = null;
 
+  let audioCtx = null;
+
+function ensureAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+}
+
+function playOkBeep() {
+  try {
+    ensureAudioContext();
+    if (!audioCtx) return;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1040, audioCtx.currentTime);
+
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.16);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.16);
+  } catch {}
+}
+
+function playBadBeep() {
+  try {
+    ensureAudioContext();
+    if (!audioCtx) return;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(280, audioCtx.currentTime);
+
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.14, audioCtx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.22);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.22);
+  } catch {}
+}
+
   function extractToken(text){
     try{
       const u = new URL(text);
@@ -118,17 +175,22 @@
       const res = await fetch(`/api/validate?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
 
-      if (data.result === 'OK'){
-        const planTxt = data.plan ? ` - ${data.plan}` : '';
-        const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null)
-          ? ` | Restan: ${data.rides_remaining}` : '';
-        showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}`);
-        setTimeout(clearResult, 2500);
-      } else {
-        const reason = data.reason ? ` - ${data.reason}` : '';
-        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
-        setTimeout(clearResult, 3500);
-      }
+    if (data.result === 'OK'){
+      playOkBeep();
+
+      const planTxt = data.plan ? ` - ${data.plan}` : '';
+      const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null)
+        ? ` | Restan: ${data.rides_remaining}` : '';
+      showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}`);
+      setTimeout(clearResult, 2500);
+    } else {
+      playBadBeep();
+
+      const reason = data.reason ? ` - ${data.reason}` : '';
+      showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
+      setTimeout(clearResult, 3500);
+    }
+      
     } catch (e){
       showResult(false, 'ERROR', `No se pudo validar\n${e?.name || ''} ${e?.message || ''}`);
     } finally {
@@ -215,23 +277,37 @@
       zxingReader = new ZX.BrowserQRCodeReader();
 
       // Listar cámaras y preferir frontal si existe
-      let deviceId = null;
-      try {
-        const devices = await ZX.BrowserCodeReader.listVideoInputDevices();
+    let deviceId = null;
+    try {
+      const devices = await ZX.BrowserCodeReader.listVideoInputDevices();
 
-        if (devices && devices.length) {
-          // 1) si hay labels, buscar frontal
-          const front = devices.find(d => /front|user|facetime/i.test(d.label || ""));
-          if (front) deviceId = front.deviceId;
+      if (devices && devices.length) {
+        const labels = devices.map(d => ({
+          id: d.deviceId,
+          label: (d.label || "").toLowerCase()
+        }));
 
-          // 2) fallback: normalmente la primera suele ser frontal en varios equipos
-          if (!deviceId && devices.length >= 1) {
-            deviceId = devices[0].deviceId;
-          }
+        // Prioridad alta: frontal / user / facetime / selfie
+        const front = labels.find(d =>
+          /front|user|facetime|selfie|frontal/.test(d.label)
+        );
+
+        // Evitar explícitamente back/rear/environment si aparece etiquetado
+        const nonRear = labels.find(d =>
+          !/back|rear|environment|trasera|posterior/.test(d.label)
+        );
+
+        if (front) {
+          deviceId = front.id;
+        } else if (nonRear) {
+          deviceId = nonRear.id;
+        } else {
+          deviceId = devices[0].deviceId;
         }
-      } catch (e) {
-        // si falla listar, dejamos deviceId null
       }
+    } catch (e) {
+      // si falla listar, dejamos deviceId null
+    }
 
       await zxingReader.decodeFromVideoDevice(deviceId, video, async (result, err) => {
         if (!running) return;
@@ -274,7 +350,10 @@
     video.srcObject = null;
   }
 
-  startBtn.addEventListener('click', () => startCamera());
+  startBtn.addEventListener('click', () => {
+  ensureAudioContext();
+  startCamera();
+  });
   stopBtn.addEventListener('click', () => stopCamera());
   window.addEventListener('beforeunload', stopCamera);
 })();
