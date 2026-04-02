@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -34,8 +35,137 @@ from app.utils import now_local
 Base.metadata.create_all(bind=ENGINE)
 
 st.set_page_config(page_title="Ecobus Admin", layout="wide")
-st.title("Ecobus / Ecovan - Admin MVP")
-st.caption("Panel operativo mínimo (MVP).")
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_PATH = BASE_DIR / "assets" / "ecobus_logo.png"
+
+
+def inject_ecobus_admin_styles():
+    st.markdown(
+        """
+        <style>
+            :root {
+                --ecobus-green: #5ca52f;
+                --ecobus-green-dark: #3f7d1f;
+                --ecobus-green-soft: #eef7e8;
+                --ecobus-border: #d8e7cc;
+                --ecobus-text: #163020;
+            }
+
+            .stApp {
+                background-color: #f7faf5;
+            }
+
+            .ecobus-header {
+                display: flex;
+                align-items: center;
+                gap: 20px;
+                padding: 18px 22px;
+                background: linear-gradient(135deg, #ffffff 0%, #eef7e8 100%);
+                border: 1px solid var(--ecobus-border);
+                border-radius: 16px;
+                margin-bottom: 22px;
+                box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+            }
+
+            .ecobus-header-text h1 {
+                margin: 0;
+                color: var(--ecobus-green-dark);
+                font-size: 30px;
+                line-height: 1.1;
+            }
+
+            .ecobus-header-text p {
+                margin: 6px 0 0 0;
+                color: #4b6353;
+                font-size: 15px;
+            }
+
+            .stTabs [data-baseweb="tab-list"] {
+                gap: 10px;
+                margin-top: 6px;
+                margin-bottom: 10px;
+            }
+
+            .stTabs [data-baseweb="tab"] {
+                background: #ffffff;
+                border-radius: 10px;
+                border: 1px solid var(--ecobus-border);
+                padding: 10px 16px;
+                color: var(--ecobus-text);
+                font-weight: 600;
+            }
+
+            .stTabs [aria-selected="true"] {
+                background: var(--ecobus-green-soft) !important;
+                border-color: var(--ecobus-green) !important;
+                color: var(--ecobus-green-dark) !important;
+            }
+
+            .stButton > button {
+                border-radius: 10px;
+                border: 1px solid var(--ecobus-green);
+                background: var(--ecobus-green-soft);
+                color: var(--ecobus-green-dark);
+                font-weight: 700;
+            }
+
+            .stButton > button:hover {
+                border-color: var(--ecobus-green-dark);
+                color: var(--ecobus-green-dark);
+                background: #e4f2d8;
+            }
+
+            div[data-testid="stMetric"] {
+                background: #ffffff;
+                border: 1px solid var(--ecobus-border);
+                border-radius: 14px;
+                padding: 12px;
+            }
+
+            div[data-testid="stDataFrame"] {
+                border-radius: 12px;
+                overflow: hidden;
+                border: 1px solid #e6eee0;
+            }
+
+            .ecobus-section-title {
+                color: var(--ecobus-green-dark);
+                font-weight: 800;
+                font-size: 24px;
+                margin-top: 6px;
+                margin-bottom: 8px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_ecobus_header():
+    col1, col2 = st.columns([1, 4])
+
+    with col1:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_container_width=True)
+        else:
+            st.warning("Logo no encontrado en admin/assets/ecobus_logo.png")
+
+    with col2:
+        st.markdown(
+            """
+            <div class="ecobus-header">
+                <div class="ecobus-header-text">
+                    <h1>Ecobus Admin</h1>
+                    <p>Panel operativo y de control de pasajeros</p>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+inject_ecobus_admin_styles()
+render_ecobus_header()
+st.caption("Panel operativo y administrativo Ecobus.")
 
 if "last_transfer_qr_png" not in st.session_state:
     st.session_state.last_transfer_qr_png = None
@@ -80,7 +210,7 @@ tabs = st.tabs([
 
 
 def render_dashboard_dia():
-    st.subheader("Dashboard día")
+    st.markdown('<div class="ecobus-section-title">Dashboard día</div>', unsafe_allow_html=True)
 
     d = st.date_input("Fecha de servicio", value=date.today(), key="dash_date")
 
@@ -148,7 +278,7 @@ def render_dashboard_dia():
     )
 
 def render_pasajeros():
-    st.subheader("Pasajeros")
+    st.markdown('<div class="ecobus-section-title">Pasajeros</div>', unsafe_allow_html=True)
 
     colA, colB = st.columns([2, 1])
     with colA:
@@ -460,7 +590,7 @@ def render_pasajeros():
 
 
 def render_planes_mensuales():
-    st.subheader("Planes mensuales")
+    st.markdown('<div class="ecobus-section-title">Planes Mensuales</div>', unsafe_allow_html=True)
     
     mode = st.radio(
         "Modo de visualización",
@@ -601,7 +731,7 @@ def render_planes_mensuales():
 
 
 def render_pase_diario():
-    st.subheader("Pase diario")
+    st.markdown('<div class="ecobus-section-title">Pase Diario</div>', unsafe_allow_html=True)
 
     d = st.date_input("Fecha", value=date.today(), key="dp_date")
     trip = st.selectbox("Tipo de viaje", [t.value for t in TripType], key="dp_trip")
@@ -860,7 +990,7 @@ def _reject_transfer_request(db, tr: TransferRequest, admin_note: str | None = N
 
 
 def render_transferencias_pendientes():
-    st.subheader("Transferencias pendientes")
+    st.markdown('<div class="ecobus-section-title">Transferencias Pendientes</div>', unsafe_allow_html=True)
 
     if st.session_state.last_transfer_qr_png:
         st.success("Último QR de pase diario generado correctamente.")
@@ -957,7 +1087,7 @@ def render_transferencias_pendientes():
                         st.error(f"Error al rechazar solicitud #{tr.id}: {e}")
 
 def render_historial_transferencias():
-    st.subheader("Historial de transferencias")
+    st.markdown('<div class="ecobus-section-title">Historial de Transferencias</div>', unsafe_allow_html=True)
 
     status_filter = st.selectbox(
         "Filtrar por estado",
@@ -1011,7 +1141,7 @@ def render_historial_transferencias():
     download_df(dft, "historial_transferencias.csv")
 
 def render_finanzas():
-    st.subheader("Finanzas")
+    st.markdown('<div class="ecobus-section-title">Finanzas</div>', unsafe_allow_html=True)
 
     PLAN_PRICES = {
         "VIAJES_10": 19000,
