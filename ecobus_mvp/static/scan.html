@@ -58,7 +58,7 @@
     </div>
   </div>
 
-<script>
+  <script>
 (() => {
   const elStatus = document.getElementById('status');
   const tripType = document.getElementById('tripType');
@@ -74,7 +74,6 @@
   }
   function clearResult(){ elStatus.style.display='none'; elStatus.textContent=''; }
 
-  // Debug visible si ocurre error JS
   window.addEventListener('error', (ev) => {
     showResult(false, 'JS ERROR', `${ev.message}\n${ev.filename}:${ev.lineno}:${ev.colno}`);
   });
@@ -87,63 +86,62 @@
   let busy = false;
   let lastToken = null;
   let zxingReader = null;
-
   let audioCtx = null;
 
-function ensureAudioContext() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function ensureAudioContext() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
   }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {});
+
+  function playOkBeep() {
+    try {
+      ensureAudioContext();
+      if (!audioCtx) return;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1040, audioCtx.currentTime);
+
+      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.16);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.16);
+    } catch {}
   }
-}
 
-function playOkBeep() {
-  try {
-    ensureAudioContext();
-    if (!audioCtx) return;
+  function playBadBeep() {
+    try {
+      ensureAudioContext();
+      if (!audioCtx) return;
 
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
 
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1040, audioCtx.currentTime);
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(280, audioCtx.currentTime);
 
-    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.16);
+      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.14, audioCtx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.22);
 
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
 
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.16);
-  } catch {}
-}
-
-function playBadBeep() {
-  try {
-    ensureAudioContext();
-    if (!audioCtx) return;
-
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(280, audioCtx.currentTime);
-
-    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.14, audioCtx.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.22);
-
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.22);
-  } catch {}
-}
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.22);
+    } catch {}
+  }
 
   function extractToken(text){
     try{
@@ -159,6 +157,7 @@ function playBadBeep() {
   async function validateScanned(raw){
     if (busy) return;
     if (!pickupPoint.value){
+      playBadBeep();
       showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
       return;
     }
@@ -175,23 +174,23 @@ function playBadBeep() {
       const res = await fetch(`/api/validate?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
 
-    if (data.result === 'OK'){
-      playOkBeep();
+      if (data.result === 'OK'){
+        playOkBeep();
 
-      const planTxt = data.plan ? ` - ${data.plan}` : '';
-      const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null)
-        ? ` | Restan: ${data.rides_remaining}` : '';
-      showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}`);
-      setTimeout(clearResult, 2500);
-    } else {
-      playBadBeep();
+        const planTxt = data.plan ? ` - ${data.plan}` : '';
+        const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null)
+          ? ` | Restan: ${data.rides_remaining}` : '';
+        showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}`);
+        setTimeout(clearResult, 2500);
+      } else {
+        playBadBeep();
 
-      const reason = data.reason ? ` - ${data.reason}` : '';
-      showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
-      setTimeout(clearResult, 3500);
-    }
-      
+        const reason = data.reason ? ` - ${data.reason}` : '';
+        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
+        setTimeout(clearResult, 3500);
+      }
     } catch (e){
+      playBadBeep();
       showResult(false, 'ERROR', `No se pudo validar\n${e?.name || ''} ${e?.message || ''}`);
     } finally {
       busy = false;
@@ -202,12 +201,14 @@ function playBadBeep() {
     clearResult();
 
     if (!pickupPoint.value){
+      playBadBeep();
       showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
       return;
     }
     if (running) return;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      playBadBeep();
       showResult(false, 'ERROR', 'Este navegador no soporta cámara (getUserMedia).');
       return;
     }
@@ -216,15 +217,12 @@ function playBadBeep() {
     stopBtn.disabled = false;
 
     try{
-      // cerrar stream previo
       if (stream){
         try { stream.getTracks().forEach(t => t.stop()); } catch {}
         stream = null;
       }
 
-      // 3 intentos (mobile-friendly) - FORZAR FRONTAL
       try {
-        // 1) forzar user (frontal) si el dispositivo lo permite
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { exact: "user" },
@@ -235,7 +233,6 @@ function playBadBeep() {
         });
       } catch (e0) {
         try {
-          // 2) user ideal (más permisivo)
           stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: { ideal: "user" },
@@ -246,7 +243,6 @@ function playBadBeep() {
           });
         } catch (e1) {
           try {
-            // 3) sin facingMode
             stream = await navigator.mediaDevices.getUserMedia({
               video: {
                 width: { ideal: 1280 },
@@ -255,11 +251,10 @@ function playBadBeep() {
               audio: false
             });
           } catch (e2) {
-            // 4) último fallback
             stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           }
         }
-     }
+      }
 
       if (!stream) throw new Error("No se obtuvo stream de cámara");
 
@@ -271,43 +266,38 @@ function playBadBeep() {
       running = true;
       lastToken = null;
 
-     const ZX = window.ZXingBrowser || window.ZXing;
+      const ZX = window.ZXingBrowser || window.ZXing;
       if (!ZX) throw new Error("ZXing no cargó");
 
       zxingReader = new ZX.BrowserQRCodeReader();
 
-      // Listar cámaras y preferir frontal si existe
-    let deviceId = null;
-    try {
-      const devices = await ZX.BrowserCodeReader.listVideoInputDevices();
+      let deviceId = null;
+      try {
+        const devices = await ZX.BrowserCodeReader.listVideoInputDevices();
 
-      if (devices && devices.length) {
-        const labels = devices.map(d => ({
-          id: d.deviceId,
-          label: (d.label || "").toLowerCase()
-        }));
+        if (devices && devices.length) {
+          const labels = devices.map(d => ({
+            id: d.deviceId,
+            label: (d.label || "").toLowerCase()
+          }));
 
-        // Prioridad alta: frontal / user / facetime / selfie
-        const front = labels.find(d =>
-          /front|user|facetime|selfie|frontal/.test(d.label)
-        );
+          const front = labels.find(d =>
+            /front|user|facetime|selfie|frontal/.test(d.label)
+          );
 
-        // Evitar explícitamente back/rear/environment si aparece etiquetado
-        const nonRear = labels.find(d =>
-          !/back|rear|environment|trasera|posterior/.test(d.label)
-        );
+          const nonRear = labels.find(d =>
+            !/back|rear|environment|trasera|posterior/.test(d.label)
+          );
 
-        if (front) {
-          deviceId = front.id;
-        } else if (nonRear) {
-          deviceId = nonRear.id;
-        } else {
-          deviceId = devices[0].deviceId;
+          if (front) {
+            deviceId = front.id;
+          } else if (nonRear) {
+            deviceId = nonRear.id;
+          } else {
+            deviceId = devices[0].deviceId;
+          }
         }
-      }
-    } catch (e) {
-      // si falla listar, dejamos deviceId null
-    }
+      } catch (e) {}
 
       await zxingReader.decodeFromVideoDevice(deviceId, video, async (result, err) => {
         if (!running) return;
@@ -325,6 +315,7 @@ function playBadBeep() {
 
     } catch (e){
       const secure = window.isSecureContext ? "YES" : "NO";
+      playBadBeep();
       showResult(false, 'ERROR', `${e?.name || "Error"}: ${e?.message || "sin detalle"} | secure=${secure}`);
       stopCamera();
     }
@@ -335,13 +326,11 @@ function playBadBeep() {
     startBtn.disabled = false;
     stopBtn.disabled = true;
 
-    // detener ZXing
     if (zxingReader){
       try { zxingReader.reset(); } catch {}
       zxingReader = null;
     }
 
-    // detener stream
     if (stream){
       try { stream.getTracks().forEach(t => t.stop()); } catch {}
       stream = null;
@@ -351,13 +340,15 @@ function playBadBeep() {
   }
 
   startBtn.addEventListener('click', () => {
-  ensureAudioContext();
-  startCamera();
+    ensureAudioContext();
+    startCamera();
   });
+
   stopBtn.addEventListener('click', () => stopCamera());
   window.addEventListener('beforeunload', stopCamera);
 })();
 </script>
+
 
 </body>
 </html>
