@@ -202,7 +202,18 @@ function playOkBeep() {
 
     try{
       const res = await fetch(`/api/validate?${params.toString()}`, { cache: "no-store" });
-      const data = await res.json();
+      const rawText = await res.text();
+
+      let data = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(`Respuesta no JSON del backend (${res.status}): ${rawText.slice(0, 160)}`);
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.detail || data?.message || `HTTP ${res.status}`);
+      }
 
       if (data.result === 'OK'){
         playOkBeep();
@@ -222,7 +233,7 @@ function playOkBeep() {
       }
     } catch (e){
       playBadBeep();
-      showResult(false, 'ERROR', `No se pudo validar\n${e?.name || ''} ${e?.message || ''}`);
+      showResult(false, 'ERROR', `No se pudo validar\n${e?.message || e}`);
     } finally {
       busy = false;
     }
