@@ -58,7 +58,7 @@
     </div>
   </div>
 
-  <script>
+<script>
 (() => {
   const elStatus = document.getElementById('status');
   const tripType = document.getElementById('tripType');
@@ -72,11 +72,17 @@
     elStatus.className = 'status ' + (ok ? 'ok' : 'bad');
     elStatus.innerHTML = `<div>${title}</div><div class="big">${subtitle || ''}</div>`;
   }
-  function clearResult(){ elStatus.style.display='none'; elStatus.textContent=''; }
 
+  function clearResult(){
+    elStatus.style.display = 'none';
+    elStatus.textContent = '';
+  }
+
+  // Debug visible si ocurre error JS
   window.addEventListener('error', (ev) => {
     showResult(false, 'JS ERROR', `${ev.message}\n${ev.filename}:${ev.lineno}:${ev.colno}`);
   });
+
   window.addEventListener('unhandledrejection', (ev) => {
     showResult(false, 'PROMISE ERROR', String(ev.reason || ev));
   });
@@ -89,12 +95,14 @@
   let audioCtx = null;
 
   function ensureAudioContext() {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
+    try {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+    } catch {}
   }
 
   function playOkBeep() {
@@ -148,7 +156,7 @@
       const u = new URL(text);
       const parts = u.pathname.split('/').filter(Boolean);
       if (parts.length >= 2 && (parts[0] === 'q' || parts[0] === 'ot')) return parts[1];
-      return parts[parts.length-1];
+      return parts[parts.length - 1];
     }catch(e){
       return (text || '').trim();
     }
@@ -156,11 +164,13 @@
 
   async function validateScanned(raw){
     if (busy) return;
+
     if (!pickupPoint.value){
       playBadBeep();
       showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
       return;
     }
+
     busy = true;
 
     const token = extractToken(raw);
@@ -180,13 +190,14 @@
         const planTxt = data.plan ? ` - ${data.plan}` : '';
         const remTxt = (data.rides_remaining !== undefined && data.rides_remaining !== null)
           ? ` | Restan: ${data.rides_remaining}` : '';
+
         showResult(true, 'OK', `${data.full_name} (${data.code})${planTxt}${remTxt}`);
         setTimeout(clearResult, 2500);
       } else {
         playBadBeep();
 
         const reason = data.reason ? ` - ${data.reason}` : '';
-        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '('+data.code+')' : ''}`);
+        showResult(false, `RECHAZADO${reason}`, `${data.full_name || ''} ${data.code ? '(' + data.code + ')' : ''}`);
         setTimeout(clearResult, 3500);
       }
     } catch (e){
@@ -205,6 +216,7 @@
       showResult(false, 'RECHAZADO', 'Selecciona punto de subida');
       return;
     }
+
     if (running) return;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
@@ -217,15 +229,18 @@
     stopBtn.disabled = false;
 
     try{
+      // cerrar stream previo
       if (stream){
         try { stream.getTracks().forEach(t => t.stop()); } catch {}
         stream = null;
       }
 
+      // Intentos para PRIORIZAR cámara trasera
       try {
+        // 1) forzar trasera si el dispositivo lo permite
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: { exact: "user" },
+            facingMode: { exact: "environment" },
             width: { ideal: 1280 },
             height: { ideal: 720 }
           },
@@ -233,9 +248,10 @@
         });
       } catch (e0) {
         try {
+          // 2) trasera ideal (más permisivo)
           stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              facingMode: { ideal: "user" },
+              facingMode: { ideal: "environment" },
               width: { ideal: 1280 },
               height: { ideal: 720 }
             },
@@ -243,6 +259,7 @@
           });
         } catch (e1) {
           try {
+            // 3) sin facingMode
             stream = await navigator.mediaDevices.getUserMedia({
               video: {
                 width: { ideal: 1280 },
@@ -251,6 +268,7 @@
               audio: false
             });
           } catch (e2) {
+            // 4) último fallback
             stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           }
         }
@@ -271,36 +289,27 @@
 
       zxingReader = new ZX.BrowserQRCodeReader();
 
+      // Listar cámaras y preferir trasera si existe
       let deviceId = null;
       try {
         const devices = await ZX.BrowserCodeReader.listVideoInputDevices();
 
         if (devices && devices.length) {
-          const labels = devices.map(d => ({
-            id: d.deviceId,
-            label: (d.label || "").toLowerCase()
-          }));
-
-          const front = labels.find(d =>
-            /front|user|facetime|selfie|frontal/.test(d.label)
-          );
-
-          const nonRear = labels.find(d =>
-            !/back|rear|environment|trasera|posterior/.test(d.label)
-          );
-
-          if (front) {
-            deviceId = front.id;
-          } else if (nonRear) {
-            deviceId = nonRear.id;
-          } else {
-            deviceId = devices[0].deviceId;
+          const rear = devices.find(d => /back|rear|environment|trasera|posterior/i.test(d.label || ""));
+          if (rear) {
+            deviceId = rear.deviceId;
+          } else if (devices.length >= 1) {
+            // fallback razonable en móviles
+            deviceId = devices[devices.length - 1].deviceId;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        // si falla listar, dejamos deviceId null
+      }
 
       await zxingReader.decodeFromVideoDevice(deviceId, video, async (result, err) => {
         if (!running) return;
+
         if (result){
           const raw = (result.getText ? result.getText() : String(result)).trim();
           if (!raw) return;
@@ -326,11 +335,13 @@
     startBtn.disabled = false;
     stopBtn.disabled = true;
 
+    // detener ZXing
     if (zxingReader){
       try { zxingReader.reset(); } catch {}
       zxingReader = null;
     }
 
+    // detener stream
     if (stream){
       try { stream.getTracks().forEach(t => t.stop()); } catch {}
       stream = null;
@@ -348,7 +359,6 @@
   window.addEventListener('beforeunload', stopCamera);
 })();
 </script>
-
 
 </body>
 </html>
