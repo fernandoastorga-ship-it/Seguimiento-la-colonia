@@ -75,6 +75,24 @@ class TokenStatus(str, PyEnum):
     ACTIVE = "ACTIVE"
     REVOKED = "REVOKED"
 
+class ServiceCode(str, PyEnum):
+    LA_COLONIA = "LA_COLONIA"
+    ALTUE = "ALTUE"
+
+class Service(Base):
+    __tablename__ = "services"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[ServiceCode] = mapped_column(
+        SAEnum(ServiceCode, name="service_code_enum"),
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    passengers: Mapped[list["Passenger"]] = relationship(back_populates="service")
 
 class Passenger(Base):
     __tablename__ = "passengers"
@@ -87,6 +105,10 @@ class Passenger(Base):
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     pickup_point_default: Mapped[PickupPoint] = mapped_column(SAEnum(PickupPoint, name="pickup_point_enum"))
+
+    service_id: Mapped[int] = mapped_column(ForeignKey("services.id"), index=True)
+    service: Mapped["Service"] = relationship(back_populates="passengers")
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -95,6 +117,7 @@ class Passenger(Base):
     tokens: Mapped[list["QrToken"]] = relationship(back_populates="passenger")
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    checkins: Mapped[list["Checkin"]] = relationship(back_populates="passenger")
 
     email_verified_at = Column(DateTime, nullable=True)
     phone_verified_at = Column(DateTime, nullable=True)
