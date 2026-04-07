@@ -28,6 +28,8 @@ from .models import (
     TokenStatus,
     OneTimeToken,
     OneTimeTokenStatus,
+    Service,
+    ServiceCode,
 )
 from .schemas import (
     PassengerCreate,
@@ -190,6 +192,13 @@ def one_time_landing(token: str):
 @app.post("/api/passengers", response_model=PassengerOut)
 def create_passenger(payload: PassengerCreate):
     with get_db() as db:
+        service = db.execute(
+            select(Service).where(Service.code == payload.service_code)
+        ).scalar_one_or_none()
+
+        if not service:
+            raise HTTPException(400, "Service not found")
+
         code = next_passenger_code(db)
         p = Passenger(
             code=code,
@@ -197,13 +206,15 @@ def create_passenger(payload: PassengerCreate):
             phone=payload.phone.strip(),
             email=str(payload.email) if payload.email else None,
             pickup_point_default=payload.pickup_point_default,
+            service_id=service.id,
             is_active=payload.is_active,
         )
         db.add(p)
         db.flush()
-        # Create initial active token for current month
+
         create_or_rotate_token(db, p.id)
         db.refresh(p)
+
         return PassengerOut(
             id=str(p.id),
             code=p.code,
@@ -211,14 +222,17 @@ def create_passenger(payload: PassengerCreate):
             phone=p.phone,
             email=p.email,
             pickup_point_default=p.pickup_point_default,
+            service_code=service.code,
+            service_name=service.name,
             is_active=p.is_active,
         )
 
 
 @app.get("/api/passengers", response_model=list[PassengerOut])
-def search_passengers(query: str | None = None):
+def search_passengers(query: str | None = None, service_code: ServiceCode | None = None):
     with get_db() as db:
-        stmt = select(Passenger)
+        stmt = select(Passenger, Service).join(Service, Service.id == Passenger.service_id)
+
         if query:
             q = f"%{query.strip()}%"
             stmt = stmt.where(
@@ -226,8 +240,13 @@ def search_passengers(query: str | None = None):
                 | (Passenger.phone.ilike(q))
                 | (Passenger.code.ilike(q))
             )
+
+        if service_code:
+            stmt = stmt.where(Service.code == service_code)
+
         stmt = stmt.order_by(Passenger.created_at.desc()).limit(100)
-        rows = db.execute(stmt).scalars().all()
+        rows = db.execute(stmt).all()
+
         return [
             PassengerOut(
                 id=str(p.id),
@@ -236,9 +255,11 @@ def search_passengers(query: str | None = None):
                 phone=p.phone,
                 email=p.email,
                 pickup_point_default=p.pickup_point_default,
+                service_code=s.code,
+                service_name=s.name,
                 is_active=p.is_active,
             )
-            for p in rows
+            for p, s in rows
         ]
 
 
@@ -248,11 +269,27 @@ def update_passenger(passenger_id: str, payload: PassengerUpdate):
         p = db.get(Passenger, passenger_id)
         if not p:
             raise HTTPException(404, "Passenger not found")
-        for k, v in payload.model_dump(exclude_unset=True).items():
+
+        data = payload.model_dump(exclude_unset=True)
+
+        if "service_code" in data:
+            service = db.execute(
+                select(Service).where(Service.code == data["service_code"])
+            ).scalar_one_or_none()
+            if not service:
+                raise HTTPException(400, "Service not found")
+            p.service_id = service.id
+            del data["service_code"]
+
+        for k, v in data.items():
             setattr(p, k, v)
+
         db.add(p)
         db.flush()
         db.refresh(p)
+
+        service = db.get(Service, p.service_id)
+
         return PassengerOut(
             id=str(p.id),
             code=p.code,
@@ -260,6 +297,8 @@ def update_passenger(passenger_id: str, payload: PassengerUpdate):
             phone=p.phone,
             email=p.email,
             pickup_point_default=p.pickup_point_default,
+            service_code=service.code,
+            service_name=service.name,
             is_active=p.is_active,
         )
 
