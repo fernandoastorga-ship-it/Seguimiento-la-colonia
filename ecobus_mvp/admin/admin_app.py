@@ -704,43 +704,45 @@ def render_pasajeros():
         is_active = st.checkbox("Activo", value=True)
         submitted = st.form_submit_button("Crear")
 
-     if submitted:
-         if not full_name.strip() or not phone.strip():
-             st.error("Nombre y teléfono son obligatorios")
-         else:
-             from app.utils import next_passenger_code
+if submitted:
+    if not full_name.strip() or not phone.strip():
+        st.error("Nombre y teléfono son obligatorios")
+    else:
+        from app.utils import next_passenger_code
 
-             with get_db() as db:
-                 service = db.execute(
-                     select(Service).where(Service.code == ServiceCode(service_choice))
-                 ).scalar_one_or_none()
+        with get_db() as db:
+            service = db.execute(
+                select(Service).where(Service.code == ServiceCode(service_choice))
+            ).scalar_one_or_none()
 
-                 if not service:
-                     st.error("Servicio no válido.")
-                     return
+            if not service:
+                st.error("Servicio no válido.")
+                st.stop()
 
-                 code = next_passenger_code(db)
-                 p = Passenger(
-                     code=code,
-                     full_name=full_name.strip(),
-                     phone=phone.strip(),
-                     email=email.strip() or None,
-                     pickup_point_default=PickupPoint(pickup),
-                     service_id=service.id,
-                     is_active=is_active,
-                 )
-                 db.add(p)
-                 db.flush()
+            code = next_passenger_code(db)
 
-                 passenger_code = p.code
-                 passenger_id = str(p.id)
+            p = Passenger(
+                code=code,
+                full_name=full_name.strip(),
+                phone=phone.strip(),
+                email=email.strip() or None,
+                pickup_point_default=PickupPoint(pickup),
+                service_id=service.id,
+                is_active=is_active,
+            )
 
-                 create_or_rotate_token(db, p.id)
+            db.add(p)
+            db.flush()
 
-             st.success(f"Pasajero creado: {passenger_code}")
-             st.info(f"Servicio asignado: {service.name}")
-             st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
-             st.caption(f"ID interno: {passenger_id}")
+            passenger_code = p.code
+            passenger_id = str(p.id)
+
+            create_or_rotate_token(db, p.id)
+
+        st.success(f"Pasajero creado: {passenger_code}")
+        st.info(f"Servicio asignado: {service.name}")
+        st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
+        st.caption(f"ID interno: {passenger_id}")
 
 
 def render_planes_mensuales():
