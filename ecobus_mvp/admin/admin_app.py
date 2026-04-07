@@ -734,77 +734,77 @@ def render_pasajeros():
     st.markdown("---")
     st.markdown("### Crear pasajero")
 
-with st.form("create_passenger"):
-    full_name = st.text_input("Nombre completo")
-    phone = st.text_input("Teléfono")
-    email = st.text_input("Email (opcional)")
+    with st.form("create_passenger"):
+        full_name = st.text_input("Nombre completo")
+        phone = st.text_input("Teléfono")
+        email = st.text_input("Email (opcional)")
 
-    service_codes = [s.code.value for s in service_rows if s.code]
+        service_codes = [s.code.value for s in service_rows if s.code]
 
-    if not service_codes:
-        st.error("No hay servicios cargados. Revisa la tabla services antes de crear pasajeros.")
-        st.stop()
+        if not service_codes:
+            st.error("No hay servicios cargados. Revisa la tabla services antes de crear pasajeros.")
+            st.stop()
 
-    service_choice = st.selectbox(
-        "Servicio",
-        options=service_codes,
-        format_func=lambda x: service_labels.get(x, x),
-    )
+        service_choice = st.selectbox(
+            "Servicio",
+            options=service_codes,
+            format_func=lambda x: service_labels.get(x, x),
+        )
 
-    pickup = st.selectbox(
-        "Punto de subida default",
-        [pp.value for pp in PickupPoint]
-    )
+        pickup = st.selectbox(
+            "Punto de subida default",
+            [pp.value for pp in PickupPoint]
+        )
 
-    is_active = st.checkbox("Activo", value=True)
+        is_active = st.checkbox("Activo", value=True)
 
-    submitted = st.form_submit_button("Crear")
+        submitted = st.form_submit_button("Crear")
 
-    if submitted:
-        if not full_name.strip() or not phone.strip():
-            st.error("Nombre y teléfono son obligatorios")
-        else:
-            from app.utils import next_passenger_code
+        if submitted:
+            if not full_name.strip() or not phone.strip():
+                st.error("Nombre y teléfono son obligatorios")
+            else:
+                from app.utils import next_passenger_code
 
-            with get_db() as db:
-                if not service_choice:
-                    st.error("Debes seleccionar un servicio.")
-                    st.stop()
+                with get_db() as db:
+                    if not service_choice:
+                        st.error("Debes seleccionar un servicio.")
+                        st.stop()
 
-                service_enum = ServiceCode(service_choice)
+                    service_enum = ServiceCode(service_choice)
 
-                service = db.execute(
-                    select(Service).where(Service.code == service_enum)
-                ).scalar_one_or_none()
+                    service = db.execute(
+                        select(Service).where(Service.code == service_enum)
+                    ).scalar_one_or_none()
 
-                if not service:
-                    st.error("Servicio no válido.")
-                    st.stop()
+                    if not service:
+                        st.error("Servicio no válido.")
+                        st.stop()
 
-                code = next_passenger_code(db)
+                    code = next_passenger_code(db)
 
-                p = Passenger(
-                    code=code,
-                    full_name=full_name.strip(),
-                    phone=phone.strip(),
-                    email=email.strip() or None,
-                    pickup_point_default=PickupPoint(pickup),
-                    service_id=service.id,
-                    is_active=is_active,
-                )
+                    p = Passenger(
+                        code=code,
+                        full_name=full_name.strip(),
+                        phone=phone.strip(),
+                        email=email.strip() or None,
+                        pickup_point_default=PickupPoint(pickup),
+                        service_id=service.id,
+                        is_active=is_active,
+                    )
 
-                db.add(p)
-                db.flush()
+                    db.add(p)
+                    db.flush()
 
-                passenger_code = p.code
-                passenger_id = str(p.id)
+                    passenger_code = p.code
+                    passenger_id = str(p.id)
 
-                create_or_rotate_token(db, p.id)
+                    create_or_rotate_token(db, p.id)
 
-            st.success(f"Pasajero creado: {passenger_code}")
-            st.info(f"Servicio asignado: {service.name}")
-            st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
-            st.caption(f"ID interno: {passenger_id}")
+                st.success(f"Pasajero creado: {passenger_code}")
+                st.info(f"Servicio asignado: {service.name}")
+                st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
+                st.caption(f"ID interno: {passenger_id}")
 
 
 def render_planes_mensuales():
