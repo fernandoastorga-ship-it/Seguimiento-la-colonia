@@ -287,7 +287,7 @@ with get_db() as db:
             """)
         )
 db.commit()
-        db.commit()
+ 
 
         service_rows = (
             db.execute(
