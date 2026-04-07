@@ -115,9 +115,10 @@ class Passenger(Base):
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="passenger")
     daily_passes: Mapped[list["DailyPass"]] = relationship(back_populates="passenger")
     tokens: Mapped[list["QrToken"]] = relationship(back_populates="passenger")
+    checkins: Mapped[list["Checkin"]] = relationship(back_populates="passenger")
+
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    checkins: Mapped[list["Checkin"]] = relationship(back_populates="passenger")
 
     email_verified_at = Column(DateTime, nullable=True)
     phone_verified_at = Column(DateTime, nullable=True)
@@ -287,12 +288,20 @@ class Checkin(Base):
         index=True,
     )
 
-    service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id"), nullable=True, index=True)
+    # 🔽 AGREGA ESTO (clave del fix)
+    passenger: Mapped["Passenger | None"] = relationship(back_populates="checkins")
+    # 🔼
+
+    service_id: Mapped[int | None] = mapped_column(
+        ForeignKey("services.id"),
+        nullable=True,
+        index=True
+    )
     service: Mapped["Service | None"] = relationship()
-    
+
     result: Mapped[CheckinResult] = mapped_column(SAEnum(CheckinResult, name="checkin_result_enum"))
     reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    
+
     entitlement: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     scanner_user: Mapped[str | None] = mapped_column(String(100), nullable=True)
