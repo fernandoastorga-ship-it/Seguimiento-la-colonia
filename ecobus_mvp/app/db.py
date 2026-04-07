@@ -104,6 +104,8 @@ def _ensure_one_time_token_enum_values() -> None:
     # Por si el TYPE no existe aún, este ALTER fallará; lo dejamos como best-effort.
     _ensure_enum_values("one_time_token_status_enum", ["ACTIVE", "USED", "REVOKED"])
 
+
+
 def _ensure_service_enum_values() -> None:
     _ensure_enum_values("service_code_enum", ["LA_COLONIA", "ALTUE"])
 
