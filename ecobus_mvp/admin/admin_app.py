@@ -264,21 +264,30 @@ def render_ecobus_header():
 inject_ecobus_admin_styles()
 render_ecobus_header()
 
-    with get_db() as db:
-        service_rows = db.execute(
-            select(Service).where(Service.is_active == True).order_by(Service.name.asc())
-        ).scalars().all()
-
-    service_options = ["TODOS"] + [s.code.value for s in service_rows]
-    service_labels = {"TODOS": "Todos"} | {s.code.value: s.name for s in service_rows}
-
-    selected_service_code = st.selectbox(
-        "Servicio",
-        options=service_options,
-        format_func=lambda x: service_labels.get(x, x),
-        index=0,
-        key="global_service_filter",
+with get_db() as db:
+    service_rows = (
+        db.execute(
+            select(Service)
+            .where(Service.is_active == True)
+            .order_by(Service.name.asc())
+        )
+        .scalars()
+        .all()
     )
+
+service_options = ["TODOS"] + [s.code.value for s in service_rows]
+
+service_labels = {"TODOS": "Todos"} | {
+    s.code.value: s.name for s in service_rows
+}
+
+selected_service_code = st.selectbox(
+    "Servicio",
+    options=service_options,
+    format_func=lambda x: service_labels.get(x, x),
+    index=0,
+    key="global_service_filter",
+)
 
 if "last_transfer_qr_png" not in st.session_state:
     st.session_state.last_transfer_qr_png = None
