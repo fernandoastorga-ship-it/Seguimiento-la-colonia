@@ -279,13 +279,14 @@ with get_db() as db:
     if not service_rows:
         db.execute(
             text("""
-                INSERT INTO services (code, name, is_active)
+                INSERT INTO services (code, name, is_active, created_at)
                 VALUES
-                    ('LA_COLONIA', 'La Colonia', TRUE),
-                    ('ALTUE', 'Altue', TRUE)
+                    ('LA_COLONIA', 'La Colonia', TRUE, NOW()),
+                    ('ALTUE', 'Altue', TRUE, NOW())
                 ON CONFLICT (code) DO NOTHING
             """)
         )
+db.commit()
         db.commit()
 
         service_rows = (
