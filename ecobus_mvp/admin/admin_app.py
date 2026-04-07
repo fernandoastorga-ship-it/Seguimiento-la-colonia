@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import select, and_, desc, func
+from sqlalchemy import select, and_, desc, func, text
 from app.models import OneTimeToken, OneTimeTokenStatus
 
 from app.config import settings
@@ -275,10 +275,39 @@ with get_db() as db:
         .all()
     )
 
-service_options = ["TODOS"] + [s.code.value for s in service_rows]
+    # Fallback: si no hay servicios, los crea
+    if not service_rows:
+        db.execute(
+            text("""
+                INSERT INTO services (code, name, is_active)
+                VALUES
+                    ('LA_COLONIA', 'La Colonia', TRUE),
+                    ('ALTUE', 'Altue', TRUE)
+                ON CONFLICT (code) DO NOTHING
+            """)
+        )
+        db.commit()
+
+        service_rows = (
+            db.execute(
+                select(Service)
+                .where(Service.is_active == True)
+                .order_by(Service.name.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+service_options = ["TODOS"] + [
+    s.code.value if hasattr(s.code, "value") else str(s.code)
+    for s in service_rows
+    if s.code is not None
+]
 
 service_labels = {"TODOS": "Todos"} | {
-    s.code.value: s.name for s in service_rows
+    (s.code.value if hasattr(s.code, "value") else str(s.code)): s.name
+    for s in service_rows
+    if s.code is not None
 }
 
 selected_service_code = st.selectbox(
