@@ -328,18 +328,26 @@ def render_dashboard_dia():
     d = st.date_input("Fecha de servicio", value=date.today(), key="dash_date")
 
     with get_db() as db:
-        rows = db.execute(
-            select(Checkin, Passenger)
+        stmt = (
+            select(Checkin, Passenger, Service)
             .join(Passenger, Passenger.id == Checkin.passenger_id, isouter=True)
+            .join(Service, Service.id == Checkin.service_id, isouter=True)
             .where(Checkin.service_date == d)
-            .order_by(desc(Checkin.created_at))
+        )
+
+        if selected_service_code != "TODOS":
+            stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
+        rows = db.execute(
+            stmt.order_by(desc(Checkin.created_at))
         ).all()
 
     data = []
-    for c, p in rows:
+    for c, p, s in rows:
         data.append({
             "hora": c.created_at.strftime("%H:%M:%S") if c.created_at else None,
             "fecha": c.service_date.isoformat() if c.service_date else None,
+            "servicio": s.name if s else "—",
             "trip_type": c.trip_type.value if c.trip_type else None,
             "pickup_point": c.pickup_point.value if c.pickup_point else None,
             "resultado": c.result.value if c.result else None,
@@ -400,9 +408,12 @@ def render_pasajeros():
         show_inactive = st.checkbox("Incluir inactivos", value=True, key="p_show_inactive")
 
     with get_db() as db:
-        stmt = select(Passenger)
-        stmt = stmt.where(Passenger.is_deleted == False)
-        
+        stmt = (
+            select(Passenger, Service)
+            .join(Service, Service.id == Passenger.service_id)
+            .where(Passenger.is_deleted == False)
+        )
+
         if q:
             like = f"%{q.strip()}%"
             stmt = stmt.where(
@@ -410,11 +421,14 @@ def render_pasajeros():
                 (Passenger.phone.ilike(like)) |
                 (Passenger.code.ilike(like))
             )
+
+        if selected_service_code != "TODOS":
+            stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
         if not show_inactive:
             stmt = stmt.where(Passenger.is_active == True)
-            stmt = stmt.where(Passenger.is_deleted == False)
 
-        passengers = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).scalars().all()
+        rows = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).all()
 
         passenger_rows = [{
             "id": str(p.id),
@@ -422,9 +436,10 @@ def render_pasajeros():
             "full_name": p.full_name,
             "phone": p.phone,
             "email": p.email,
+            "service": s.name,
             "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
             "active": bool(p.is_active),
-        } for p in passengers]
+        } for p, s in rows]
 
     st.write(f"Resultados: {len(passenger_rows)}")
     if passenger_rows:
@@ -669,37 +684,54 @@ def render_pasajeros():
         full_name = st.text_input("Nombre completo")
         phone = st.text_input("Teléfono")
         email = st.text_input("Email (opcional)")
+
+        service_choice = st.selectbox(
+            "Servicio",
+            options=[s.code.value for s in service_rows],
+            format_func=lambda x: service_labels.get(x, x),
+        )
+
         pickup = st.selectbox("Punto de subida default", [pp.value for pp in PickupPoint])
         is_active = st.checkbox("Activo", value=True)
         submitted = st.form_submit_button("Crear")
 
-    if submitted:
-        if not full_name.strip() or not phone.strip():
-            st.error("Nombre y teléfono son obligatorios")
-        else:
-            from app.utils import next_passenger_code
+     if submitted:
+         if not full_name.strip() or not phone.strip():
+             st.error("Nombre y teléfono son obligatorios")
+         else:
+             from app.utils import next_passenger_code
 
-            with get_db() as db:
-                code = next_passenger_code(db)
-                p = Passenger(
-                    code=code,
-                    full_name=full_name.strip(),
-                    phone=phone.strip(),
-                    email=email.strip() or None,
-                    pickup_point_default=PickupPoint(pickup),
-                    is_active=is_active,
-                )
-                db.add(p)
-                db.flush()
+             with get_db() as db:
+                 service = db.execute(
+                     select(Service).where(Service.code == ServiceCode(service_choice))
+                 ).scalar_one_or_none()
 
-                passenger_code = p.code
-                passenger_id = str(p.id)
+                 if not service:
+                     st.error("Servicio no válido.")
+                     return
 
-                create_or_rotate_token(db, p.id)
+                 code = next_passenger_code(db)
+                 p = Passenger(
+                     code=code,
+                     full_name=full_name.strip(),
+                     phone=phone.strip(),
+                     email=email.strip() or None,
+                     pickup_point_default=PickupPoint(pickup),
+                     service_id=service.id,
+                     is_active=is_active,
+                 )
+                 db.add(p)
+                 db.flush()
 
-            st.success(f"Pasajero creado: {passenger_code}")
-            st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
-            st.caption(f"ID interno: {passenger_id}")
+                 passenger_code = p.code
+                 passenger_id = str(p.id)
+
+                 create_or_rotate_token(db, p.id)
+
+             st.success(f"Pasajero creado: {passenger_code}")
+             st.info(f"Servicio asignado: {service.name}")
+             st.info(f"QR generado. Puedes descargarlo desde Acciones con el código {passenger_code}.")
+             st.caption(f"ID interno: {passenger_id}")
 
 
 def render_planes_mensuales():
