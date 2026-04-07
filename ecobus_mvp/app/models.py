@@ -287,6 +287,9 @@ class Checkin(Base):
         index=True,
     )
 
+    service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id"), nullable=True, index=True)
+    service: Mapped["Service | None"] = relationship()
+    
     result: Mapped[CheckinResult] = mapped_column(SAEnum(CheckinResult, name="checkin_result_enum"))
     reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     
