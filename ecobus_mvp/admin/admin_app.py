@@ -419,7 +419,7 @@ def render_pasajeros():
     with get_db() as db:
         stmt = (
             select(Passenger, Service)
-            .join(Service, Service.id == Passenger.service_id)
+            .join(Service, Service.id == Passenger.service_id, isouter=True)
             .where(Passenger.is_deleted == False)
         )
 
@@ -431,25 +431,29 @@ def render_pasajeros():
                 (Passenger.code.ilike(like))
             )
 
-    
         if selected_service_code != "TODOS":
             stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
 
         if not show_inactive:
             stmt = stmt.where(Passenger.is_active == True)
 
-        rows = db.execute(stmt.order_by(desc(Passenger.created_at)).limit(200)).all()
+        rows = db.execute(
+            stmt.order_by(desc(Passenger.created_at)).limit(200)
+        ).all()
 
-        passenger_rows = [{
-            "id": str(p.id),
-            "code": p.code,
-            "full_name": p.full_name,
-            "phone": p.phone,
-            "email": p.email,
-            "service": s.name,
-            "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
-            "active": bool(p.is_active),
-        } for p, s in rows]
+        passenger_rows = [
+            {
+                "id": str(p.id),
+                "code": p.code,
+                "full_name": p.full_name,
+                "phone": p.phone,
+                "email": p.email,
+                "service": s.name if s else "Sin servicio",
+                "pickup_default": p.pickup_point_default.value if p.pickup_point_default else None,
+                "active": bool(p.is_active),
+            }
+            for p, s in rows
+        ]
 
     st.write(f"Resultados: {len(passenger_rows)}")
     if passenger_rows:
