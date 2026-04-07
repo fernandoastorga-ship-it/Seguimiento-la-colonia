@@ -699,9 +699,15 @@ with st.form("create_passenger"):
     phone = st.text_input("Teléfono")
     email = st.text_input("Email (opcional)")
 
+    service_codes = [s.code.value for s in service_rows if s.code]
+
+    if not service_codes:
+        st.error("No hay servicios cargados. Revisa la tabla services antes de crear pasajeros.")
+        st.stop()
+
     service_choice = st.selectbox(
         "Servicio",
-        options=[s.code.value for s in service_rows],
+        options=service_codes,
         format_func=lambda x: service_labels.get(x, x),
     )
 
@@ -714,7 +720,6 @@ with st.form("create_passenger"):
 
     submitted = st.form_submit_button("Crear")
 
-    # 🔽 TODO ESTO VA DENTRO DEL FORM
     if submitted:
         if not full_name.strip() or not phone.strip():
             st.error("Nombre y teléfono son obligatorios")
@@ -722,8 +727,14 @@ with st.form("create_passenger"):
             from app.utils import next_passenger_code
 
             with get_db() as db:
+                if not service_choice:
+                    st.error("Debes seleccionar un servicio.")
+                    st.stop()
+
+                service_enum = ServiceCode(service_choice)
+
                 service = db.execute(
-                    select(Service).where(Service.code == ServiceCode(service_choice))
+                    select(Service).where(Service.code == service_enum)
                 ).scalar_one_or_none()
 
                 if not service:
