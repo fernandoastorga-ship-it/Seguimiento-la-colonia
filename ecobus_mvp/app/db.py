@@ -104,6 +104,9 @@ def _ensure_one_time_token_enum_values() -> None:
     # Por si el TYPE no existe aún, este ALTER fallará; lo dejamos como best-effort.
     _ensure_enum_values("one_time_token_status_enum", ["ACTIVE", "USED", "REVOKED"])
 
+def _ensure_service_enum_values() -> None:
+    _ensure_enum_values("service_code_enum", ["LA_COLONIA", "ALTUE"])
+
 def _ensure_checkins_entitlement_column() -> None:
     stmts = [
         "ALTER TABLE checkins ADD COLUMN IF NOT EXISTS entitlement varchar(20);"
@@ -131,6 +134,92 @@ def _ensure_soft_delete_columns() -> None:
     _exec_autocommit(stmts, "_ensure_soft_delete_columns failed")
 
 _ensure_soft_delete_columns()
+
+def _ensure_services_schema() -> None:
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS services (
+            id SERIAL PRIMARY KEY,
+            code VARCHAR(50) NOT NULL UNIQUE,
+            name VARCHAR(120) NOT NULL UNIQUE,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_services_code ON services(code);",
+
+        "ALTER TABLE passengers ADD COLUMN IF NOT EXISTS service_id integer NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_passengers_service_id ON passengers(service_id);",
+
+        "ALTER TABLE checkins ADD COLUMN IF NOT EXISTS service_id integer NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_checkins_service_id ON checkins(service_id);",
+    ]
+    _exec_autocommit(stmts, "_ensure_services_schema failed")
+
+def _seed_default_services() -> None:
+    stmts = [
+        """
+        INSERT INTO services (code, name, is_active)
+        VALUES ('LA_COLONIA', 'La Colonia', TRUE)
+        ON CONFLICT (code) DO NOTHING;
+        """,
+        """
+        INSERT INTO services (code, name, is_active)
+        VALUES ('ALTUE', 'Altue', TRUE)
+        ON CONFLICT (code) DO NOTHING;
+        """,
+    ]
+    _exec_autocommit(stmts, "_seed_default_services failed")
+
+def _backfill_service_ids() -> None:
+    stmts = [
+        """
+        UPDATE passengers p
+        SET service_id = s.id
+        FROM services s
+        WHERE p.service_id IS NULL
+          AND s.code = 'LA_COLONIA';
+        """,
+        """
+        UPDATE checkins c
+        SET service_id = p.service_id
+        FROM passengers p
+        WHERE c.passenger_id = p.id
+          AND c.service_id IS NULL
+          AND p.service_id IS NOT NULL;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints
+                WHERE table_name = 'passengers'
+                  AND constraint_name = 'fk_passengers_service_id'
+            ) THEN
+                ALTER TABLE passengers
+                ADD CONSTRAINT fk_passengers_service_id
+                FOREIGN KEY (service_id) REFERENCES services(id);
+            END IF;
+        END $$;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints
+                WHERE table_name = 'checkins'
+                  AND constraint_name = 'fk_checkins_service_id'
+            ) THEN
+                ALTER TABLE checkins
+                ADD CONSTRAINT fk_checkins_service_id
+                FOREIGN KEY (service_id) REFERENCES services(id);
+            END IF;
+        END $$;
+        """,
+    ]
+    _exec_autocommit(stmts, "_backfill_service_ids failed")
 
 
 def _migrate_old_subscription_plan_values() -> None:
@@ -169,6 +258,10 @@ _ensure_one_time_token_enum_values()
 _ensure_checkins_entitlement_column()
 _migrate_old_subscription_plan_values()
 _ensure_one_time_tokens_schema()
+_ensure_service_enum_values()
+_ensure_services_schema()
+_seed_default_services()
+_backfill_service_ids()
 
 
 @contextmanager
