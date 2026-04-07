@@ -11,6 +11,7 @@ from .models import (
     PaymentStatus,
     TripType,
     ReservationStatus,
+    ServiceCode,
 )
 
 
@@ -19,6 +20,7 @@ class PassengerCreate(BaseModel):
     phone: str
     email: EmailStr | None = None
     pickup_point_default: PickupPoint
+    service_code: ServiceCode
     is_active: bool = True
 
 
@@ -27,6 +29,7 @@ class PassengerUpdate(BaseModel):
     phone: str | None = None
     email: EmailStr | None = None
     pickup_point_default: PickupPoint | None = None
+    service_code: ServiceCode | None = None
     is_active: bool | None = None
 
 
@@ -37,6 +40,8 @@ class PassengerOut(BaseModel):
     phone: str
     email: str | None
     pickup_point_default: PickupPoint
+    service_code: ServiceCode
+    service_name: str
     is_active: bool
 
 
@@ -70,6 +75,8 @@ class ValidateResponse(BaseModel):
     plan: str | None = None
     month: date | None = None
     pickup_point: str | None = None
+    service_code: str | None = None
+    service_name: str | None = None
     rides_included: int | None = None
     rides_used_total: int | None = None
     rides_remaining: int | None = None
