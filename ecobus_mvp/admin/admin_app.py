@@ -286,7 +286,17 @@ with get_db() as db:
                 ON CONFLICT (code) DO NOTHING
             """)
         )
-db.commit()
+        db.commit()
+
+        service_rows = (
+            db.execute(
+                select(Service)
+                .where(Service.is_active == True)
+                .order_by(Service.name.asc())
+            )
+            .scalars()
+            .all()
+        )
  
 
         service_rows = (
