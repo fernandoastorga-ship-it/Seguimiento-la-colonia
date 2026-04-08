@@ -1440,9 +1440,10 @@ def render_finanzas():
 
     with get_db() as db:
         # Pases vendidos = PAGADO + CONFIRMADO dentro del rango
-        dp_rows = db.execute(
-            select(DailyPass, Passenger)
+        stmt = (
+            select(DailyPass, Passenger, Service)
             .join(Passenger, Passenger.id == DailyPass.passenger_id)
+            .join(Service, Service.id == Passenger.service_id, isouter=True)
             .where(
                 and_(
                     DailyPass.service_date >= start_dt.date(),
@@ -1453,17 +1454,23 @@ def render_finanzas():
                 )
             )
             .where(Passenger.is_deleted == False)
-            .order_by(DailyPass.service_date.desc(), Passenger.code)
-            
+        )
+
+        if selected_service_code != "TODOS":
+            stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
+        dp_rows = db.execute(
+            stmt.order_by(DailyPass.service_date.desc(), Passenger.code)
         ).all()
 
     dp_table = []
-    for dp, p in dp_rows:
+    for dp, p, svc in dp_rows:
         dp_table.append({
             "service_date": dp.service_date.isoformat() if dp.service_date else None,
             "trip_type": dp.trip_type.value if dp.trip_type else None,
             "passenger_code": p.code,
             "full_name": p.full_name,
+            "service": svc.name if svc else "Sin servicio",
             "monto_clp": DAILY_PASS_PRICE,
         })
 
@@ -1496,29 +1503,50 @@ def render_finanzas():
     st.markdown("### KPIs del período")
 
     with get_db() as db:
-        # Traemos subs + pasajero para cálculos en Python
+        # Traemos subs + pasajero + servicio para cálculos en Python
         if mode.startswith("Mes calendario"):
-            subs = db.execute(
-                select(Subscription, Passenger)
+            stmt = (
+                select(Subscription, Passenger, Service)
                 .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .join(Service, Service.id == Passenger.service_id, isouter=True)
                 .where(Subscription.month == month)
-                .order_by(Passenger.code)
-            ).all()
-        else:
-            # últimos N días: por activated_at (si activated_at es None no entra)
-            subs = db.execute(
-                select(Subscription, Passenger)
-                .join(Passenger, Passenger.id == Subscription.passenger_id)
-                .where(and_(Subscription.activated_at != None,
-                            Subscription.activated_at >= start_dt,
-                            Subscription.activated_at < end_dt))
                 .where(Subscription.is_deleted == False)
                 .where(Passenger.is_deleted == False)
-                .order_by(Subscription.activated_at.desc())
+            )
+
+            if selected_service_code != "TODOS":
+                stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
+            subs = db.execute(
+                stmt.order_by(Passenger.code)
+            ).all()
+
+        else:
+            # últimos N días: por activated_at (si activated_at es None no entra)
+            stmt = (
+                select(Subscription, Passenger, Service)
+                .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .join(Service, Service.id == Passenger.service_id, isouter=True)
+                .where(
+                    and_(
+                        Subscription.activated_at != None,
+                        Subscription.activated_at >= start_dt,
+                        Subscription.activated_at < end_dt,
+                    )
+                )
+                .where(Subscription.is_deleted == False)
+                .where(Passenger.is_deleted == False)
+            )
+
+            if selected_service_code != "TODOS":
+                stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
+            subs = db.execute(
+                stmt.order_by(Subscription.activated_at.desc())
             ).all()
 
     rows = []
-    for s, p in subs:
+    for s, p, svc in subs:
         plan = s.plan_type.value if s.plan_type else None
         price = PLAN_PRICES.get(plan, 0)
 
@@ -1538,6 +1566,7 @@ def render_finanzas():
         rows.append({
             "passenger_code": p.code,
             "full_name": p.full_name,
+            "service": svc.name if svc else "Sin servicio",
             "plan": plan,
             "price": price,
             "payment_status": status,
@@ -1602,7 +1631,7 @@ def render_finanzas():
     if len(due_soon):
         st.dataframe(
             due_soon[[
-                "passenger_code", "full_name", "plan", "payment_status",
+                "passenger_code", "full_name", "service", "plan", "payment_status",
                 "activated_at", "next_due", "days_left", "rides_remaining"
             ]],
             use_container_width=True
@@ -1655,6 +1684,15 @@ def render_finanzas():
                 if not p:
                     st.error("No existe pasajero con ese código.")
                 else:
+                    if selected_service_code != "TODOS":
+                        passenger_service = db.execute(
+                            select(Service).where(Service.id == p.service_id)
+                        ).scalar_one_or_none()
+
+                        if not passenger_service or passenger_service.code != ServiceCode(selected_service_code):
+                            st.error("El pasajero no pertenece al servicio seleccionado.")
+                            return
+
                     sub = db.execute(
                         select(Subscription).where(
                             and_(Subscription.passenger_id == p.id, Subscription.month == action_month)
