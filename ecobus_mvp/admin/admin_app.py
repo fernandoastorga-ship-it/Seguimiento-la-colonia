@@ -5,7 +5,6 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from sqlalchemy import select, and_, desc, func, text
-from app.models import OneTimeToken, OneTimeTokenStatus
 
 from app.config import settings
 from app.db import get_db, ENGINE
@@ -827,28 +826,44 @@ def render_planes_mensuales():
     with get_db() as db:
         if mode == "Vigentes hoy":
             now_dt = now_local().replace(tzinfo=None)
-            subs = db.execute(
-                select(Subscription, Passenger)
+
+            stmt = (
+                select(Subscription, Passenger, Service)
                 .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .join(Service, Service.id == Passenger.service_id, isouter=True)
                 .where(Subscription.is_deleted == False)
                 .where(Subscription.payment_status == PaymentStatus.PAGADO)
                 .where(Subscription.activated_at != None)
                 .where(Subscription.expires_at != None)
                 .where(Subscription.activated_at <= now_dt)
                 .where(Subscription.expires_at >= now_dt)
-                .order_by(Passenger.code)
-            ).all()
-        else:
+            )
+
+            if selected_service_code != "TODOS":
+                stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
             subs = db.execute(
-                select(Subscription, Passenger)
+                stmt.order_by(Passenger.code)
+            ).all()
+
+        else:
+            stmt = (
+                select(Subscription, Passenger, Service)
                 .join(Passenger, Passenger.id == Subscription.passenger_id)
+                .join(Service, Service.id == Passenger.service_id, isouter=True)
                 .where(Subscription.month == month)
                 .where(Subscription.is_deleted == False)
-                .order_by(Passenger.code)
+            )
+
+            if selected_service_code != "TODOS":
+                stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
+            subs = db.execute(
+                stmt.order_by(Passenger.code)
             ).all()
 
     subs_rows = []
-    for s, p in subs:
+    for s, p, svc in subs:
         used_total = (s.rides_used_ida or 0) + (s.rides_used_vuelta or 0)
         remaining = max(0, (s.rides_included or 0) - used_total)
         subs_rows.append({
@@ -864,6 +879,7 @@ def render_planes_mensuales():
             "rides_remaining": remaining,
             "activated_at": s.activated_at,
             "expires_at": s.expires_at,
+            "service": svc.name if svc else "Sin servicio",
         })
 
     if subs_rows:
@@ -956,21 +972,29 @@ def render_pase_diario():
 
     # Tabla de pases del día
     with get_db() as db:
-        rows = db.execute(
-            select(DailyPass, Passenger)
+        stmt = (
+            select(DailyPass, Passenger, Service)
             .join(Passenger, Passenger.id == DailyPass.passenger_id)
+            .join(Service, Service.id == Passenger.service_id, isouter=True)
             .where(and_(DailyPass.service_date == d, DailyPass.trip_type == TripType(trip)))
-            .order_by(Passenger.code)
+        )
+
+        if selected_service_code != "TODOS":
+            stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
+        rows = db.execute(
+            stmt.order_by(Passenger.code)
         ).all()
 
     daily_rows = []
-    for dp, p in rows:
+    for dp, p, svc in rows:
         daily_rows.append({
             "id": dp.id,
             "passenger_code": p.code,
             "full_name": p.full_name,
             "payment_status": dp.payment_status.value,
             "reservation_status": dp.reservation_status.value,
+            "service": svc.name if svc else "Sin servicio",
         })
 
     if daily_rows:
@@ -999,6 +1023,16 @@ def render_pase_diario():
             if not p:
                 st.error("No existe pasajero")
                 return
+
+          # Validar que el pasajero pertenezca al servicio seleccionado en el admin
+            if selected_service_code != "TODOS":
+                passenger_service = db.execute(
+                    select(Service).where(Service.id == p.service_id)
+                ).scalar_one_or_none()
+
+                if not passenger_service or passenger_service.code != ServiceCode(selected_service_code):
+                    st.error("El pasajero no pertenece al servicio seleccionado.")
+                    return  
 
             dp = DailyPass(
                 passenger_id=p.id,
