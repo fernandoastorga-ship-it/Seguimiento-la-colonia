@@ -934,6 +934,9 @@ def render_planes_mensuales():
                     select(Subscription).where(and_(Subscription.passenger_id == p.id, Subscription.month == month))
                 ).scalar_one_or_none()
 
+                activation_dt = now_local().replace(tzinfo=None)
+                expires_dt = activation_dt + timedelta(days=30)
+
                 if not sub:
                     sub = Subscription(
                         passenger_id=p.id,
@@ -943,15 +946,18 @@ def render_planes_mensuales():
                         rides_included=rides_included,
                         rides_used_ida=0,
                         rides_used_vuelta=0,
-                        activated_at=now_local().replace(tzinfo=None),
+                        activated_at=activation_dt,
+                        expires_at=expires_dt,
                         notes=notes or None,
                     )
                 else:
                     sub.plan_type = PlanType(plan_type)
                     sub.payment_status = PaymentStatus(pay_status)
                     sub.rides_included = rides_included
-                    sub.activated_at = now_local().replace(tzinfo=None)
+                    sub.activated_at = activation_dt
+                    sub.expires_at = expires_dt
                     sub.notes = notes or None
+
                     if reset_usage:
                         sub.rides_used_ida = 0
                         sub.rides_used_vuelta = 0
