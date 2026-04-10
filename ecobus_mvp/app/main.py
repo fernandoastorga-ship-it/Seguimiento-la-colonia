@@ -410,7 +410,7 @@ def update_daily_pass(daily_pass_id: int, payload: DailyPassUpdate):
         return {"ok": True}
 
 
-# ---------- Validation ----------
+# ---------- Validation --------- #
 @app.get("/api/validate", response_model=ValidateResponse)
 def validate(
     token: str = Query(...),
@@ -428,21 +428,63 @@ def validate(
             ot = db.execute(select(OneTimeToken).where(OneTimeToken.token == token)).scalar_one_or_none()
 
             if not ot:
-                _log_checkin(db, None, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_INVALIDO", entitlement=None)
+                _log_checkin(
+                    db,
+                    None,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "TOKEN_INVALIDO",
+                    entitlement=None,
+                    service_id=None,
+                )
                 return ValidateResponse(result="REJECTED", reason="TOKEN_INVALIDO", message="Token inválido o no existe.")
 
+            p_ot = db.get(Passenger, ot.passenger_id)
+            p_ot_service_id = p_ot.service_id if p_ot else None
+
             if ot.status != OneTimeTokenStatus.ACTIVE or ot.used_at is not None:
-                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_USADO", entitlement="DAILY_PASS")
+                _log_checkin(
+                    db,
+                    ot.passenger_id,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "TOKEN_USADO",
+                    entitlement="DAILY_PASS",
+                    service_id=p_ot_service_id,
+                )
                 return ValidateResponse(result="REJECTED", reason="TOKEN_USADO", message="QR ya fue utilizado.")
 
-            p_ot = db.get(Passenger, ot.passenger_id)
             if not p_ot or not p_ot.is_active:
-                _log_checkin(db, ot.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_INACTIVO", entitlement="DAILY_PASS")
+                _log_checkin(
+                    db,
+                    ot.passenger_id,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "PLAN_INACTIVO",
+                    entitlement="DAILY_PASS",
+                    service_id=p_ot_service_id,
+                )
                 return ValidateResponse(result="REJECTED", reason="PLAN_INACTIVO", message="Pasajero inactivo.")
 
             dp = db.get(DailyPass, ot.daily_pass_id)
             if not dp:
-                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_DERECHO_A_VIAJE", entitlement="DAILY_PASS")
+                _log_checkin(
+                    db,
+                    p_ot.id,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "SIN_DERECHO_A_VIAJE",
+                    entitlement="DAILY_PASS",
+                    service_id=p_ot.service_id,
+                )
                 return ValidateResponse(
                     result="REJECTED",
                     full_name=p_ot.full_name,
@@ -453,7 +495,17 @@ def validate(
 
             # Revalidación de seguridad (aunque el QR se genera solo con pago confirmado)
             if dp.payment_status != PaymentStatus.PAGADO or dp.reservation_status != ReservationStatus.CONFIRMADO:
-                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PASE_NO_CONFIRMADO", entitlement="DAILY_PASS")
+                _log_checkin(
+                    db,
+                    p_ot.id,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "PASE_NO_CONFIRMADO",
+                    entitlement="DAILY_PASS",
+                    service_id=p_ot.service_id,
+                )
                 return ValidateResponse(
                     result="REJECTED",
                     full_name=p_ot.full_name,
@@ -464,7 +516,17 @@ def validate(
 
             # El pase diario debe coincidir con el tipo de viaje seleccionado en el scanner
             if dp.trip_type != trip_type:
-                _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_TIPO", entitlement="DAILY_PASS")
+                _log_checkin(
+                    db,
+                    p_ot.id,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "TOKEN_TIPO",
+                    entitlement="DAILY_PASS",
+                    service_id=p_ot.service_id,
+                )
                 return ValidateResponse(
                     result="REJECTED",
                     full_name=p_ot.full_name,
@@ -478,7 +540,17 @@ def validate(
             ot.used_at = now.replace(tzinfo=None)
             db.add(ot)
 
-            _log_checkin(db, p_ot.id, service_date, trip_type, pickup_point, CheckinResult.OK, None, entitlement="DAILY_PASS")
+            _log_checkin(
+                db,
+                p_ot.id,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.OK,
+                None,
+                entitlement="DAILY_PASS",
+                service_id=p_ot.service_id,
+            )
 
             return ValidateResponse(
                 result="OK",
@@ -491,19 +563,48 @@ def validate(
             )
 
         if not t or t.status != TokenStatus.ACTIVE:
-            _log_checkin(db, None, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_INVALIDO")
+            _log_checkin(
+                db,
+                None,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.REJECTED,
+                "TOKEN_INVALIDO",
+                service_id=None,
+            )
             return ValidateResponse(result="REJECTED", reason="TOKEN_INVALIDO", message="Token inválido o revocado.")
 
         # validity window
         valid_from = t.valid_from.replace(tzinfo=ZoneInfo(settings.tz))
         valid_to = t.valid_to.replace(tzinfo=ZoneInfo(settings.tz))
         if not (valid_from <= now <= valid_to):
-            _log_checkin(db, None, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "TOKEN_INVALIDO")
+            _log_checkin(
+                db,
+                None,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.REJECTED,
+                "TOKEN_INVALIDO",
+                service_id=None,
+            )
             return ValidateResponse(result="REJECTED", reason="TOKEN_INVALIDO", message="Token fuera de vigencia.")
 
         p = db.get(Passenger, t.passenger_id)
+        p_service_id = p.service_id if p else None
+
         if not p or not p.is_active:
-            _log_checkin(db, t.passenger_id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_INACTIVO")
+            _log_checkin(
+                db,
+                t.passenger_id,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.REJECTED,
+                "PLAN_INACTIVO",
+                service_id=p_service_id,
+            )
             return ValidateResponse(
                 result="REJECTED",
                 full_name=p.full_name if p else None,
@@ -512,13 +613,22 @@ def validate(
                 message="Pasajero inactivo.",
             )
 
-                # time window (can be disabled for testing)
+        # time window (can be disabled for testing)
         if not settings.disable_time_window:
             nt = now.timetz().replace(tzinfo=None)
 
             if trip_type == TripType.IDA:
                 if not in_time_window(nt, settings.time_window_ida_start, settings.time_window_ida_end):
-                    _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
+                    _log_checkin(
+                        db,
+                        p.id,
+                        service_date,
+                        trip_type,
+                        pickup_point,
+                        CheckinResult.REJECTED,
+                        "FUERA_DE_HORARIO",
+                        service_id=p.service_id,
+                    )
                     return ValidateResponse(
                         result="REJECTED",
                         full_name=p.full_name,
@@ -528,7 +638,16 @@ def validate(
                     )
             else:
                 if not in_time_window(nt, settings.time_window_vuelta_start, settings.time_window_vuelta_end):
-                    _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "FUERA_DE_HORARIO")
+                    _log_checkin(
+                        db,
+                        p.id,
+                        service_date,
+                        trip_type,
+                        pickup_point,
+                        CheckinResult.REJECTED,
+                        "FUERA_DE_HORARIO",
+                        service_id=p.service_id,
+                    )
                     return ValidateResponse(
                         result="REJECTED",
                         full_name=p.full_name,
@@ -556,7 +675,16 @@ def validate(
         ).scalar_one_or_none()
 
         if dup:
-            _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "DUPLICADO_RECIENTE")
+            _log_checkin(
+                db,
+                p.id,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.REJECTED,
+                "DUPLICADO_RECIENTE",
+                service_id=p.service_id,
+            )
             return ValidateResponse(
                 result="REJECTED",
                 full_name=p.full_name,
@@ -583,7 +711,16 @@ def validate(
 
         if sub and sub.payment_status == PaymentStatus.PAGADO:
             if not _plan_allows(sub.plan_type, trip_type):
-                _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PLAN_NO_PERMITE_VIAJE")
+                _log_checkin(
+                    db,
+                    p.id,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "PLAN_NO_PERMITE_VIAJE",
+                    service_id=p.service_id,
+                )
                 return ValidateResponse(
                     result="REJECTED",
                     full_name=p.full_name,
@@ -593,7 +730,16 @@ def validate(
                 )
 
             if not _has_rides_left(sub, trip_type):
-                _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "RIDES_AGOTADOS")
+                _log_checkin(
+                    db,
+                    p.id,
+                    service_date,
+                    trip_type,
+                    pickup_point,
+                    CheckinResult.REJECTED,
+                    "RIDES_AGOTADOS",
+                    service_id=p.service_id,
+                )
                 return ValidateResponse(
                     result="REJECTED",
                     full_name=p.full_name,
@@ -602,7 +748,16 @@ def validate(
                     message="Viajes del plan agotados.",
                 )
 
-            _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.OK, None)
+            _log_checkin(
+                db,
+                p.id,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.OK,
+                None,
+                service_id=p.service_id,
+            )
             _consume_ride(sub, trip_type)
             db.add(sub)
 
@@ -634,7 +789,16 @@ def validate(
         ).scalar_one_or_none()
 
         if not dp:
-            _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_DERECHO_A_VIAJE")
+            _log_checkin(
+                db,
+                p.id,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.REJECTED,
+                "SIN_DERECHO_A_VIAJE",
+                service_id=p.service_id,
+            )
             return ValidateResponse(
                 result="REJECTED",
                 full_name=p.full_name,
@@ -644,7 +808,16 @@ def validate(
             )
 
         if dp.payment_status != PaymentStatus.PAGADO or dp.reservation_status != ReservationStatus.CONFIRMADO:
-            _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "PASE_NO_CONFIRMADO")
+            _log_checkin(
+                db,
+                p.id,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.REJECTED,
+                "PASE_NO_CONFIRMADO",
+                service_id=p.service_id,
+            )
             return ValidateResponse(
                 result="REJECTED",
                 full_name=p.full_name,
@@ -665,7 +838,16 @@ def validate(
         ).scalar_one()
 
         if confirmed_count > settings.daily_reserved:
-            _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.REJECTED, "SIN_CUPO")
+            _log_checkin(
+                db,
+                p.id,
+                service_date,
+                trip_type,
+                pickup_point,
+                CheckinResult.REJECTED,
+                "SIN_CUPO",
+                service_id=p.service_id,
+            )
             return ValidateResponse(
                 result="REJECTED",
                 full_name=p.full_name,
@@ -674,7 +856,16 @@ def validate(
                 message="Sin cupo disponible para pase diario.",
             )
 
-        _log_checkin(db, p.id, service_date, trip_type, pickup_point, CheckinResult.OK, None)
+        _log_checkin(
+            db,
+            p.id,
+            service_date,
+            trip_type,
+            pickup_point,
+            CheckinResult.OK,
+            None,
+            service_id=p.service_id,
+        )
         return ValidateResponse(
             result="OK",
             full_name=p.full_name,
@@ -684,7 +875,6 @@ def validate(
             pickup_point=pickup_point.value,
             message="Pase diario confirmado. Check-in registrado.",
         )
-
 
 def _log_checkin(
     db,
