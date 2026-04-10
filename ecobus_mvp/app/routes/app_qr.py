@@ -123,6 +123,15 @@ def get_my_qr_bundle(
         active_subscription = _get_active_subscription(db, passenger.id)
         monthly_qr = _get_active_monthly_qr(db, passenger.id) if active_subscription else None
 
+        if active_subscription and not monthly_qr:
+            create_or_rotate_token(
+                db,
+                passenger.id,
+                valid_to_override=active_subscription.expires_at,
+                keep_existing_if_active=True,
+            )
+            monthly_qr = _get_active_monthly_qr(db, passenger.id)
+
         monthly_qr_data = {
             "available": False,
             "token": None,
