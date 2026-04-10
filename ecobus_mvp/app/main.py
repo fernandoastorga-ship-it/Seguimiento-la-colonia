@@ -707,7 +707,7 @@ def validate(
                     Subscription.expires_at >= now.replace(tzinfo=None),
                 )
             ).order_by(desc(Subscription.activated_at), desc(Subscription.id))
-        ).scalar_one_or_none()
+        ).scalars().first()
 
         if sub and sub.payment_status == PaymentStatus.PAGADO:
             if not _plan_allows(sub.plan_type, trip_type):
