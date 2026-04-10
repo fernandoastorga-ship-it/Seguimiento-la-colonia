@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import and_, desc, select
 
@@ -16,10 +16,8 @@ from app.models import (
     OneTimeTokenStatus,
     Subscription,
 )
-from app.qr_helpers import create_or_rotate_token
+from app.qr_helpers import create_or_rotate_token, make_qr_png
 from app.services.auth_service import get_passenger_from_token
-from fastapi import Response
-from app.qr_helpers import make_qr_png
 
 
 router = APIRouter(prefix="/app/qr", tags=["App QR"])
@@ -43,6 +41,7 @@ def _get_active_monthly_qr(db, passenger_id):
         .order_by(desc(QrToken.valid_to), desc(QrToken.id))
     )
     return db.execute(stmt).scalars().first()
+
 
 def _get_active_subscription(db, passenger_id):
     now_dt = datetime.now()
@@ -118,7 +117,9 @@ def get_my_qr_bundle(
         if not passenger:
             raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-        # QR mensual: solo si hay suscripción vigente real
+        # =========================
+        # QR MENSUAL
+        # =========================
         active_subscription = _get_active_subscription(db, passenger.id)
         monthly_qr = _get_active_monthly_qr(db, passenger.id) if active_subscription else None
 
@@ -143,7 +144,9 @@ def get_my_qr_bundle(
                 "image_url": f"{settings.public_base_url.rstrip('/')}/app/qr/monthly/image",
             }
 
-        # QR pase diario
+        # =========================
+        # QR DIARIO
+        # =========================
         daily_pass = _get_today_confirmed_daily_pass(db, passenger.id, today)
 
         daily_pass_qr_data = {
@@ -154,6 +157,7 @@ def get_my_qr_bundle(
             "token": None,
             "status": None,
             "qr_url": None,
+            "image_url": None,
         }
 
         if daily_pass:
@@ -171,7 +175,10 @@ def get_my_qr_bundle(
                     "image_url": f"{settings.public_base_url.rstrip('/')}/app/qr/daily-pass/image",
                 }
 
-            effective_qr = {
+        # =========================
+        # QR EFECTIVO (PRIORIDAD)
+        # =========================
+        effective_qr = {
             "kind": None,
             "title": "Sin QR vigente",
             "available": False,
@@ -201,16 +208,17 @@ def get_my_qr_bundle(
                 "qr_url": monthly_qr_data["qr_url"],
                 "image_url": monthly_qr_data["image_url"],
             }
-        
-                return {
-                    "passenger": {
-                        "id": str(passenger.id),
-                        "full_name": passenger.full_name,
-                    },
-                    "effective_qr": effective_qr,
-                    "monthly_qr": monthly_qr_data,
-                    "daily_pass_qr": daily_pass_qr_data,
-               }
+
+        return {
+            "passenger": {
+                "id": str(passenger.id),
+                "full_name": passenger.full_name,
+            },
+            "effective_qr": effective_qr,
+            "monthly_qr": monthly_qr_data,
+            "daily_pass_qr": daily_pass_qr_data,
+        }
+
 
 @router.get("/monthly/image", dependencies=[Depends(security)])
 def get_monthly_qr_image(
@@ -236,6 +244,7 @@ def get_monthly_qr_image(
         png_bytes = make_qr_png(qr_url)
 
         return Response(content=png_bytes, media_type="image/png")
+
 
 @router.get("/daily-pass/image", dependencies=[Depends(security)])
 def get_daily_pass_qr_image(
