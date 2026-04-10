@@ -686,13 +686,24 @@ def validate(
         )
 
 
-def _log_checkin(db, passenger_id, service_date, trip_type, pickup_point, result, reason, entitlement: str | None = None):
+def _log_checkin(
+    db,
+    passenger_id,
+    service_date,
+    trip_type,
+    pickup_point,
+    result,
+    reason,
+    entitlement: str | None = None,
+    service_id=None,
+):
     c = Checkin(
         created_at=now_local().replace(tzinfo=None),
         service_date=service_date,
         trip_type=trip_type,
         pickup_point=pickup_point,
         passenger_id=passenger_id,
+        service_id=service_id,
         result=result,
         reason=reason,
         entitlement=entitlement,
