@@ -139,6 +139,8 @@ def get_my_qr_bundle(
         monthly_qr = _get_active_monthly_qr(db, passenger.id) if active_subscription else None
 
         if active_subscription and not monthly_qr:
+            print("No había QR mensual, creando nuevo...")
+            
             create_or_rotate_token(
                 db,
                 passenger.id,
@@ -146,6 +148,8 @@ def get_my_qr_bundle(
                 keep_existing_if_active=True,
             )
             monthly_qr = _get_active_monthly_qr(db, passenger.id)
+            
+            print("QR creado:", monthly_qr.token if monthly_qr else "None")
 
         monthly_qr_data = {
             "available": False,
