@@ -26,7 +26,9 @@ security = HTTPBearer()
 
 
 def _get_active_monthly_qr(db, passenger_id):
-    now_dt = datetime.now()
+    from app.utils import now_local
+
+    now_dt = now_local().replace(tzinfo=None)
 
     stmt = (
         select(QrToken)
@@ -44,7 +46,9 @@ def _get_active_monthly_qr(db, passenger_id):
 
 
 def _get_active_subscription(db, passenger_id):
-    now_dt = datetime.now()
+    from app.utils import now_local
+
+    now_dt = now_local().replace(tzinfo=None)
 
     stmt = (
         select(Subscription)
@@ -62,6 +66,7 @@ def _get_active_subscription(db, passenger_id):
         .order_by(desc(Subscription.activated_at), desc(Subscription.id))
     )
     return db.execute(stmt).scalars().first()
+
 
 
 def _get_today_confirmed_daily_pass(db, passenger_id, today: date):
