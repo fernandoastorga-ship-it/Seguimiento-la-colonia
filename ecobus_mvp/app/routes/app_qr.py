@@ -36,13 +36,23 @@ def _get_active_monthly_qr(db, passenger_id):
             and_(
                 QrToken.passenger_id == passenger_id,
                 QrToken.status == TokenStatus.ACTIVE,
-                QrToken.valid_from <= now_dt,
-                QrToken.valid_to >= now_dt,
             )
         )
         .order_by(desc(QrToken.valid_to), desc(QrToken.id))
     )
-    return db.execute(stmt).scalars().first()
+
+    token = db.execute(stmt).scalars().first()
+
+    if not token:
+        return None
+
+    # Validación manual segura (evita problemas de timezone)
+    if token.valid_from and token.valid_to:
+        if not (token.valid_from <= now_dt <= token.valid_to):
+            print("QR fuera de rango:", token.valid_from, token.valid_to, now_dt)
+            return None
+
+    return token
 
 
 def _get_active_subscription(db, passenger_id):
