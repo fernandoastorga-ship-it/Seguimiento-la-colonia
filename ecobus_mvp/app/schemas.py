@@ -138,23 +138,41 @@ class TransferReviewIn(BaseModel):
 class AppDashboardPassengerOut(BaseModel):
     id: str
     full_name: str
-    code: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    pickup_point: str | None = None
     pickup_default: str | None = None
+    code: str | None = None
+    app_enabled: bool
+    email_verified_at: datetime | None = None
+    phone_verified_at: datetime | None = None
+    last_login_at: datetime | None = None
 
 
-class AppDashboardMonthlyPlanOut(BaseModel):
+class AppDashboardSubscriptionOut(BaseModel):
+    has_plan: bool
+    status: str
     plan_type: str | None = None
     payment_status: str | None = None
-    rides_included: int = 0
-    rides_used_total: int = 0
-    rides_remaining: int = 0
-    period_label: str | None = None
     activated_at: datetime | None = None
     expires_at: datetime | None = None
+    rides_included: int = 0
+    rides_used: int = 0
+    rides_used_total: int = 0
+    rides_remaining: int = 0
     days_left: int | None = None
+
+
+class AppDashboardDailyPassOut(BaseModel):
+    id: int
+    service_date: date
+    trip_type: str
+    payment_status: str
+    reservation_status: str
 
 
 class AppDashboardOut(BaseModel):
     passenger: AppDashboardPassengerOut
-    monthly_plan: AppDashboardMonthlyPlanOut | None = None
-    daily_pass_active: bool = False
+    subscription: AppDashboardSubscriptionOut
+    daily_pass: AppDashboardDailyPassOut | None = None
+
