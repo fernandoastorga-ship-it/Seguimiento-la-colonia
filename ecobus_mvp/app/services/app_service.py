@@ -1,8 +1,13 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 
 from app.models import Passenger, Subscription, DailyPass, PaymentStatus
+
+
+APP_TZ = ZoneInfo("America/Santiago")
 
 
 # -------------------------
@@ -11,6 +16,20 @@ from app.models import Passenger, Subscription, DailyPass, PaymentStatus
 
 def _month_start(d: date) -> date:
     return d.replace(day=1)
+
+def _compute_days_left(expires_at, today: date) -> int | None:
+    if not expires_at:
+        return None
+
+    if isinstance(expires_at, datetime):
+        if expires_at.tzinfo is None:
+            expires_local_date = expires_at.date()
+        else:
+            expires_local_date = expires_at.astimezone(APP_TZ).date()
+    else:
+        expires_local_date = expires_at
+
+    return (expires_local_date - today).days
 
 
 # -------------------------
@@ -60,7 +79,7 @@ def _get_today_daily_pass(db: Session, passenger_id, today: date):
 # Lógica de negocio
 # -------------------------
 
-def _compute_subscription_summary(sub: Subscription | None):
+def _compute_subscription_summary(sub: Subscription | None, today: date):
     if not sub:
         return {
             "has_plan": False,
@@ -68,22 +87,27 @@ def _compute_subscription_summary(sub: Subscription | None):
             "plan_type": None,
             "payment_status": None,
             "activated_at": None,
+            "expires_at": None,
             "rides_included": 0,
             "rides_used": 0,
+            "rides_used_total": 0,
             "rides_remaining": 0,
+            "days_left": None,
         }
 
     rides_used = (sub.rides_used_ida or 0) + (sub.rides_used_vuelta or 0)
     rides_included = sub.rides_included or 0
     rides_remaining = max(rides_included - rides_used, 0)
-
     payment_status = sub.payment_status.value
+    days_left = _compute_days_left(sub.expires_at, today)
 
     # Estado del plan
     if sub.payment_status == PaymentStatus.PENDIENTE:
         status = "pending_payment"
     elif not sub.activated_at:
         status = "inactive"
+    elif days_left is not None and days_left < 0:
+        status = "expired"
     elif rides_remaining <= 0:
         status = "exhausted"
     else:
@@ -95,9 +119,12 @@ def _compute_subscription_summary(sub: Subscription | None):
         "plan_type": sub.plan_type.value,
         "payment_status": payment_status,
         "activated_at": sub.activated_at,
+        "expires_at": sub.expires_at,
         "rides_included": rides_included,
         "rides_used": rides_used,
+        "rides_used_total": rides_used,
         "rides_remaining": rides_remaining,
+        "days_left": days_left,
     }
 
 
@@ -114,7 +141,7 @@ def build_app_dashboard(db: Session, passenger_id, today: date):
     subscription = _get_current_subscription(db, passenger.id, today)
     daily_pass = _get_today_daily_pass(db, passenger.id, today)
 
-    sub_summary = _compute_subscription_summary(subscription)
+    sub_summary = _compute_subscription_summary(subscription, today)
 
     daily_pass_data = None
     if daily_pass:
@@ -133,6 +160,8 @@ def build_app_dashboard(db: Session, passenger_id, today: date):
             "email": passenger.email,
             "phone": passenger.phone,
             "pickup_point": passenger.pickup_point_default.value if passenger.pickup_point_default else None,
+            "pickup_default": passenger.pickup_point_default.value if passenger.pickup_point_default else None,
+            "code": passenger.code,
             "app_enabled": passenger.app_enabled,
             "email_verified_at": passenger.email_verified_at,
             "phone_verified_at": passenger.phone_verified_at,
