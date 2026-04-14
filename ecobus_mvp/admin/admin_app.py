@@ -27,6 +27,9 @@ from app.models import (
     TransferRequestType,
     OneTimeToken,
     OneTimeTokenStatus,
+    PaymentIntent,
+    PaymentIntentKind,
+    PaymentIntentStatus,
     Service, 
     ServiceCode,
 )
@@ -365,6 +368,7 @@ tabs = st.tabs([
     "Finanzas",
     "Transferencias pendientes",
     "Historial transferencias",
+    "Historial Webpay",
 ])
 
 
@@ -1396,6 +1400,92 @@ def render_historial_transferencias():
     st.dataframe(dft, use_container_width=True)
     download_df(dft, "historial_transferencias.csv")
 
+def render_historial_webpay():
+    st.markdown('<div class="ecobus-section-title">Historial Webpay</div>', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        kind_filter = st.selectbox(
+            "Tipo",
+            ["TODOS", "MONTHLY_PLAN", "DAILY_PASS"],
+            key="webpay_kind_filter",
+        )
+    with col2:
+        status_filter = st.selectbox(
+            "Estado",
+            ["TODOS", "PENDING", "AUTHORIZED", "FAILED", "ABORTED"],
+            key="webpay_status_filter",
+        )
+    with col3:
+        search_code = st.text_input(
+            "Código pasajero",
+            key="webpay_search_code",
+            placeholder="Ej: ECO0001",
+        ).strip().upper()
+
+    with get_db() as db:
+        stmt = (
+            select(PaymentIntent, Passenger, Service)
+            .join(Passenger, Passenger.id == PaymentIntent.passenger_id)
+            .join(Service, Service.id == Passenger.service_id, isouter=True)
+            .order_by(desc(PaymentIntent.created_at), desc(PaymentIntent.id))
+        )
+
+        if selected_service_code != "TODOS":
+            stmt = stmt.where(Service.code == ServiceCode(selected_service_code))
+
+        if kind_filter != "TODOS":
+            stmt = stmt.where(PaymentIntent.kind == PaymentIntentKind(kind_filter))
+
+        if status_filter != "TODOS":
+            stmt = stmt.where(PaymentIntent.status == PaymentIntentStatus(status_filter))
+
+        if search_code:
+            stmt = stmt.where(Passenger.code == search_code)
+
+        rows = db.execute(stmt).all()
+
+    if not rows:
+        st.info("No hay movimientos Webpay para los filtros seleccionados.")
+        return
+
+    data = []
+    for pi, p, svc in rows:
+        payload_data = {}
+        try:
+            payload_data = json.loads(pi.payload_json) if pi.payload_json else {}
+        except Exception:
+            payload_data = {}
+
+        data.append({
+            "id": pi.id,
+            "fecha_creacion": pi.created_at.strftime("%Y-%m-%d %H:%M:%S") if pi.created_at else None,
+            "fecha_commit": pi.committed_at.strftime("%Y-%m-%d %H:%M:%S") if pi.committed_at else None,
+            "codigo": p.code if p else None,
+            "nombre": p.full_name if p else None,
+            "servicio": svc.name if svc else "Sin servicio",
+            "tipo": pi.kind.value if pi.kind else None,
+            "estado": pi.status.value if pi.status else None,
+            "monto": pi.amount,
+            "buy_order": pi.buy_order,
+            "auth_code": pi.authorization_code,
+            "month": payload_data.get("month"),
+            "service_date": payload_data.get("service_date"),
+            "trip_type": payload_data.get("trip_type"),
+            "plan_type": payload_data.get("plan_type"),
+        })
+
+    df = pd.DataFrame(data)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("TOTAL", int(len(df)))
+    c2.metric("AUTORIZADOS", int((df["estado"] == "AUTHORIZED").sum()))
+    c3.metric("PENDIENTES", int((df["estado"] == "PENDING").sum()))
+    c4.metric("FALLIDOS/ABORTADOS", int(((df["estado"] == "FAILED") | (df["estado"] == "ABORTED")).sum()))
+
+    st.dataframe(df, use_container_width=True)
+    download_df(df, "historial_webpay.csv")
+
 def render_finanzas():
     st.markdown('<div class="ecobus-section-title">Finanzas</div>', unsafe_allow_html=True)
 
@@ -1741,6 +1831,9 @@ with tabs[5]:
 
 with tabs[6]:
     render_historial_transferencias()
+
+with tabs[7]:
+    render_historial_webpay()
 
 st.markdown("---")
 st.caption("Config: Render + Postgres recomendado. TZ y ventanas horarias desde variables de entorno.")
