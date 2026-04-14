@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Form
@@ -22,11 +22,15 @@ from app.models import (
     PaymentStatus,
     ReservationStatus,
     TripType,
+    OneTimeToken,
+    OneTimeTokenStatus,
 )
 from app.services.webpay_rest import (
     webpay_create_transaction,
     webpay_commit_transaction,
 )
+from app.qr_helpers import create_or_rotate_token
+from app.utils import generate_token, now_local
 
 # IMPORTANTE:
 # usa aquí los mismos imports reales que ya tienes funcionando en tu app
@@ -125,6 +129,8 @@ def _upsert_monthly_subscription(
     plan_type: str,
 ):
     month_norm = _normalize_month_first_day(month)
+    activation_dt = now_local().replace(tzinfo=None)
+    expires_dt = activation_dt + timedelta(days=30)
 
     existing = (
         db.query(Subscription)
@@ -142,9 +148,17 @@ def _upsert_monthly_subscription(
         existing.plan_type = PlanType(plan_type)
         existing.payment_status = PaymentStatus.PAGADO
         existing.rides_included = rides_included
-        existing.activated_at = datetime.utcnow()
+        existing.activated_at = activation_dt
+        existing.expires_at = expires_dt
         existing.notes = "Pago Webpay aprobado"
         db.flush()
+
+        create_or_rotate_token(
+            db,
+            passenger.id,
+            valid_to_override=expires_dt,
+            keep_existing_if_active=True,
+        )
         return existing
 
     sub = Subscription(
@@ -155,11 +169,19 @@ def _upsert_monthly_subscription(
         rides_included=rides_included,
         rides_used_ida=0,
         rides_used_vuelta=0,
-        activated_at=datetime.utcnow(),
+        activated_at=activation_dt,
+        expires_at=expires_dt,
         notes="Pago Webpay aprobado",
     )
     db.add(sub)
     db.flush()
+
+    create_or_rotate_token(
+        db,
+        passenger.id,
+        valid_to_override=expires_dt,
+        keep_existing_if_active=True,
+    )
     return sub
 
 
@@ -184,17 +206,41 @@ def _create_daily_pass_paid(
         existing.payment_status = PaymentStatus.PAGADO
         existing.reservation_status = ReservationStatus.CONFIRMADO
         db.flush()
-        return existing
+        dp = existing
+    else:
+        dp = DailyPass(
+            passenger_id=passenger.id,
+            service_date=service_date,
+            trip_type=TripType(trip_type),
+            payment_status=PaymentStatus.PAGADO,
+            reservation_status=ReservationStatus.CONFIRMADO,
+        )
+        db.add(dp)
+        db.flush()
 
-    dp = DailyPass(
-        passenger_id=passenger.id,
-        service_date=service_date,
-        trip_type=TripType(trip_type),
-        payment_status=PaymentStatus.PAGADO,
-        reservation_status=ReservationStatus.CONFIRMADO,
+    ot = (
+        db.query(OneTimeToken)
+        .filter(
+            OneTimeToken.daily_pass_id == dp.id,
+            OneTimeToken.status == OneTimeTokenStatus.ACTIVE,
+            OneTimeToken.used_at.is_(None),
+        )
+        .order_by(OneTimeToken.id.desc())
+        .first()
     )
-    db.add(dp)
-    db.flush()
+
+    if not ot:
+        ot = OneTimeToken(
+            passenger_id=passenger.id,
+            daily_pass_id=dp.id,
+            token=generate_token(),
+            service_date=service_date,
+            trip_type=TripType(trip_type),
+            status=OneTimeTokenStatus.ACTIVE,
+        )
+        db.add(ot)
+        db.flush()
+
     return dp
 
 
@@ -401,6 +447,19 @@ def _handle_webpay_return(token_ws: Optional[str], tbk_token: Optional[str]):
                 )
 
             payload = json.loads(intent.payload_json)
+            intent.status = PaymentIntentStatus.AUTHORIZED
+            intent.authorization_code = result.get("authorization_code")
+
+            tx_date = result.get("transaction_date")
+            if tx_date:
+                try:
+                    intent.transaction_date = datetime.fromisoformat(
+                        tx_date.replace("Z", "+00:00")
+                    )
+                except Exception:
+                    intent.transaction_date = None
+
+            intent.committed_at = datetime.utcnow()
 
             if intent.kind == PaymentIntentKind.MONTHLY_PLAN:
                 _upsert_monthly_subscription(
@@ -427,16 +486,6 @@ def _handle_webpay_return(token_ws: Optional[str], tbk_token: Optional[str]):
                     url=_build_frontend_payments_url("failed"),
                     status_code=303,
                 )
-
-            intent.status = PaymentIntentStatus.AUTHORIZED
-            intent.authorization_code = result.get("authorization_code")
-            tx_date = result.get("transaction_date")
-            if tx_date:
-                try:
-                    intent.transaction_date = datetime.fromisoformat(tx_date.replace("Z", "+00:00"))
-                except Exception:
-                    intent.transaction_date = None
-            intent.committed_at = datetime.utcnow()
 
             db.commit()
 
