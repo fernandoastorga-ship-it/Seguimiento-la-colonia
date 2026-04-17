@@ -38,6 +38,28 @@ def in_time_window(now_t: time, start: time, end: time) -> bool:
     return start <= now_t <= end
 
 
+def local_time_now() -> time:
+    return now_local().timetz().replace(tzinfo=None)
+
+
+def is_tracking_window_now() -> bool:
+    now_t = local_time_now()
+
+    morning_ok = in_time_window(
+        now_t,
+        settings.tracking_window_morning_start,
+        settings.tracking_window_morning_end,
+    )
+
+    evening_ok = in_time_window(
+        now_t,
+        settings.tracking_window_evening_start,
+        settings.tracking_window_evening_end,
+    )
+
+    return morning_ok or evening_ok
+
+
 def generate_token() -> str:
     # URL-safe, long non-guessable token
     return secrets.token_urlsafe(32)
