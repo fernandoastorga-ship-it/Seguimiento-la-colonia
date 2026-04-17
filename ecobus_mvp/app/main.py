@@ -47,6 +47,7 @@ from app.routes import (
     app_payments,
     app_history,
     app_legal,
+    app_tracking,
 )
 from .utils import now_local, today_local, month_start, end_of_month, in_time_window, generate_token, next_passenger_code
 from app.qr_helpers import make_qr_png, create_or_rotate_token
@@ -76,6 +77,7 @@ app.include_router(app_qr.router)
 app.include_router(app_payments.router)
 app.include_router(app_history.router)
 app.include_router(app_legal.router)
+app.include_router(app_tracking.router)
 
 
 # Create tables automatically (MVP friendly). In production, switch to Alembic migrations.
