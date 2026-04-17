@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WORKBUS · Tracking conductor</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        background: #f7faf7;
+        color: #17331f;
+      }
+
+      .card {
+        max-width: 520px;
+        margin: 0 auto;
+        background: #ffffff;
+        border: 1px solid #dfeadf;
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
+      }
+
+      h1 {
+        margin-top: 0;
+        color: #2e7d32;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 700;
+      }
+
+      input,
+      select,
+      button {
+        width: 100%;
+        padding: 12px;
+        font-size: 16px;
+        margin-bottom: 14px;
+        border-radius: 10px;
+        border: 1px solid #cddacc;
+        box-sizing: border-box;
+      }
+
+      button {
+        background: #2e7d32;
+        color: white;
+        border: none;
+        font-weight: 700;
+      }
+
+      button.secondary {
+        background: #e7efe7;
+        color: #17331f;
+      }
+
+      .status {
+        background: #f1f7f1;
+        border: 1px solid #d9e8d8;
+        border-radius: 12px;
+        padding: 12px;
+        font-size: 14px;
+      }
+
+      .ok {
+        color: #1f6b2a;
+      }
+
+      .error {
+        color: #b42318;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Tracking conductor</h1>
+
+      <label for="serviceCode">Servicio</label>
+      <select id="serviceCode">
+        <option value="LA_COLONIA">La Colonia</option>
+        <option value="ALTUE">Altue</option>
+      </select>
+
+      <label for="driverPin">PIN conductor</label>
+      <input id="driverPin" type="password" placeholder="Ingresa PIN" />
+
+      <button id="startBtn">Iniciar envío de ubicación</button>
+      <button id="stopBtn" class="secondary" type="button">Detener envío</button>
+
+      <div class="status" id="statusBox">
+        Esperando inicio...
+      </div>
+    </div>
+
+    <script>
+      const statusBox = document.getElementById("statusBox");
+      const serviceCodeEl = document.getElementById("serviceCode");
+      const driverPinEl = document.getElementById("driverPin");
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn = document.getElementById("stopBtn");
+
+      const params = new URLSearchParams(window.location.search);
+      const serviceCodeParam = params.get("service_code");
+      if (serviceCodeParam) {
+        serviceCodeEl.value = serviceCodeParam;
+      }
+
+      let intervalId = null;
+      let running = false;
+
+      function setStatus(message, kind = "ok") {
+        statusBox.className = "status " + kind;
+        statusBox.innerHTML = message;
+      }
+
+      async function sendCurrentLocation() {
+        if (!navigator.geolocation) {
+          setStatus("Este dispositivo no soporta geolocalización.", "error");
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            try {
+              const payload = {
+                service_code: serviceCodeEl.value,
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+                driver_pin: driverPinEl.value.trim(),
+                source: "driver_tracking_web"
+              };
+
+              const response = await fetch("/api/vehicle-locations", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+              });
+
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(data.detail || "No fue posible enviar la ubicación.");
+              }
+
+              setStatus(
+                "Ubicación enviada correctamente.<br>Servicio: <b>" +
+                  data.service_code +
+                  "</b><br>Hora: <b>" +
+                  new Date().toLocaleTimeString() +
+                  "</b>"
+              );
+            } catch (error) {
+              setStatus(error.message || "Error enviando ubicación.", "error");
+            }
+          },
+          (error) => {
+            setStatus("No fue posible obtener GPS: " + error.message, "error");
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
+        );
+      }
+
+      function startSharing() {
+        if (running) return;
+
+        const pin = driverPinEl.value.trim();
+        if (!pin) {
+          setStatus("Debes ingresar el PIN del conductor.", "error");
+          return;
+        }
+
+        running = true;
+        setStatus("Iniciando envío de ubicación...");
+        sendCurrentLocation();
+        intervalId = window.setInterval(sendCurrentLocation, 10000);
+      }
+
+      function stopSharing() {
+        running = false;
+        if (intervalId) {
+          window.clearInterval(intervalId);
+          intervalId = null;
+        }
+        setStatus("Envío detenido.");
+      }
+
+      startBtn.addEventListener("click", startSharing);
+      stopBtn.addEventListener("click", stopSharing);
+    </script>
+  </body>
+</html>
