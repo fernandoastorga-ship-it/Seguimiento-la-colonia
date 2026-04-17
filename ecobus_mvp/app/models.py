@@ -80,8 +80,42 @@ class ServiceCode(str, PyEnum):
     LA_COLONIA = "LA_COLONIA"
     ALTUE = "ALTUE"
 
+
+class Service(Base):
+    __tablename__ = "services"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[ServiceCode] = mapped_column(
+        SAEnum(ServiceCode, name="service_code_enum"),
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    passengers: Mapped[list["Passenger"]] = relationship(back_populates="service")
+
+
 class VehicleLocation(Base):
     __tablename__ = "vehicle_locations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    service_id: Mapped[int] = mapped_column(
+        ForeignKey("services.id"),
+        nullable=False,
+        index=True,
+    )
+
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    service: Mapped["Service"] = relationship()
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
