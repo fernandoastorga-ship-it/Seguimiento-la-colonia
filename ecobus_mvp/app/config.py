@@ -52,52 +52,24 @@ class Settings:
     # -------------------------
     # Tracking conductor / pasajero
     # -------------------------
-    tracking_enabled: bool = _env("TRACKING_ENABLED", "true").lower() in (
-        "1",
-        "true",
-        "yes",
-        "y",
-        "on",
-    )
+    tracking_enabled: bool = _env("TRACKING_ENABLED", "true").lower() in ("1", "true", "yes", "y", "on")
     driver_app_pin: str = _env("DRIVER_APP_PIN", "5678")
 
-    tracking_window_morning_start: time = _parse_hhmm(
-        _env("TRACKING_WINDOW_MORNING_START", "05:30")
-    )
-    tracking_window_morning_end: time = _parse_hhmm(
-        _env("TRACKING_WINDOW_MORNING_END", "07:00")
-    )
-    tracking_window_evening_start: time = _parse_hhmm(
-        _env("TRACKING_WINDOW_EVENING_START", "17:00")
-    )
-    tracking_window_evening_end: time = _parse_hhmm(
-        _env("TRACKING_WINDOW_EVENING_END", "19:00")
-    )
+    tracking_window_morning_start: time = _parse_hhmm(_env("TRACKING_WINDOW_MORNING_START", "05:30"))
+    tracking_window_morning_end: time = _parse_hhmm(_env("TRACKING_WINDOW_MORNING_END", "07:00"))
+    tracking_window_evening_start: time = _parse_hhmm(_env("TRACKING_WINDOW_EVENING_START", "17:00"))
+    tracking_window_evening_end: time = _parse_hhmm(_env("TRACKING_WINDOW_EVENING_END", "19:00"))
 
-    tracking_location_stale_seconds: int = int(
-        _env("TRACKING_LOCATION_STALE_SECONDS", "90")
-    )
+    tracking_location_stale_seconds: int = int(_env("TRACKING_LOCATION_STALE_SECONDS", "90"))
     tracking_poll_seconds: int = int(_env("TRACKING_POLL_SECONDS", "10"))
     tracking_avg_speed_kmh: float = float(_env("TRACKING_AVG_SPEED_KMH", "22"))
 
-    pickup_la_colonia_lat: Optional[float] = _parse_optional_float(
-        _env("PICKUP_LA_COLONIA_LAT", "")
-    )
-    pickup_la_colonia_lng: Optional[float] = _parse_optional_float(
-        _env("PICKUP_LA_COLONIA_LNG", "")
-    )
-    pickup_cruce_malloco_lat: Optional[float] = _parse_optional_float(
-        _env("PICKUP_CRUCE_MALLOCO_LAT", "")
-    )
-    pickup_cruce_malloco_lng: Optional[float] = _parse_optional_float(
-        _env("PICKUP_CRUCE_MALLOCO_LNG", "")
-    )
-    pickup_la_moneda_lat: Optional[float] = _parse_optional_float(
-        _env("PICKUP_LA_MONEDA_LAT", "")
-    )
-    pickup_la_moneda_lng: Optional[float] = _parse_optional_float(
-        _env("PICKUP_LA_MONEDA_LNG", "")
-    )
+    pickup_la_colonia_lat: Optional[float] = _parse_optional_float(_env("PICKUP_LA_COLONIA_LAT", ""))
+    pickup_la_colonia_lng: Optional[float] = _parse_optional_float(_env("PICKUP_LA_COLONIA_LNG", ""))
+    pickup_cruce_malloco_lat: Optional[float] = _parse_optional_float(_env("PICKUP_CRUCE_MALLOCO_LAT", ""))
+    pickup_cruce_malloco_lng: Optional[float] = _parse_optional_float(_env("PICKUP_CRUCE_MALLOCO_LNG", ""))
+    pickup_la_moneda_lat: Optional[float] = _parse_optional_float(_env("PICKUP_LA_MONEDA_LAT", ""))
+    pickup_la_moneda_lng: Optional[float] = _parse_optional_float(_env("PICKUP_LA_MONEDA_LNG", ""))
 
 
 settings = Settings()
