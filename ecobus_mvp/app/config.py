@@ -60,7 +60,7 @@ class Settings:
     tracking_window_evening_start: time = _parse_hhmm(_env("TRACKING_WINDOW_EVENING_START", "17:00"))
     tracking_window_evening_end: time = _parse_hhmm(_env("TRACKING_WINDOW_EVENING_END", "19:00"))
 
-    tracking_location_stale_seconds: int = int(_env("TRACKING_LOCATION_STALE_SECONDS", "90"))
+    tracking_location_stale_seconds: int = int(_env("TRACKING_LOCATION_STALE_SECONDS", "300"))
     tracking_poll_seconds: int = int(_env("TRACKING_POLL_SECONDS", "10"))
     tracking_avg_speed_kmh: float = float(_env("TRACKING_AVG_SPEED_KMH", "22"))
 
