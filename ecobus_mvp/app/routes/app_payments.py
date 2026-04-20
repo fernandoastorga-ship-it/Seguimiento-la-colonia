@@ -12,31 +12,13 @@ from app.models import (
     PlanType,
     PaymentStatus,
     ReservationStatus,
-    TransferRequest,
-    TransferRequestStatus,
-    TransferRequestType,
 )
 from app.utils import now_local
-from app.schemas import TransferNotifyIn, TransferRequestOut
 from app.services.auth_service import get_passenger_from_token
 
 router = APIRouter(prefix="/app/payments", tags=["App Payments"])
 
 security = HTTPBearer()
-
-def _transfer_request_out(item: TransferRequest) -> TransferRequestOut:
-    return TransferRequestOut(
-        id=item.id,
-        passenger_id=str(item.passenger_id),
-        request_type=item.request_type.value,
-        status=item.status.value,
-        payload=item.payload,
-        notes=item.notes,
-        admin_notes=item.admin_notes,
-        created_at=item.created_at,
-        reviewed_at=item.reviewed_at,
-        reviewed_by=item.reviewed_by,
-    )
 
 
 def _month_start(d: date) -> date:
@@ -175,51 +157,6 @@ def get_payment_status(
             },
         }
 
-@router.post("/transfer/notify", response_model=TransferRequestOut, dependencies=[Depends(security)])
-def notify_transfer(
-    payload: TransferNotifyIn,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-):
-    token = credentials.credentials
-
-    if payload.request_type not in ("MONTHLY", "DAILY"):
-        raise HTTPException(status_code=400, detail="request_type inválido")
-
-    with get_db() as db:
-        passenger = get_passenger_from_token(db, token)
-        if not passenger:
-            raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
-        # Evita duplicado exacto pendiente
-        existing = db.execute(
-            select(TransferRequest)
-            .where(
-                and_(
-                    TransferRequest.passenger_id == passenger.id,
-                    TransferRequest.status == TransferRequestStatus.PENDING,
-                    TransferRequest.request_type == TransferRequestType[payload.request_type],
-                )
-            )
-            .order_by(desc(TransferRequest.created_at), desc(TransferRequest.id))
-        ).scalars().all()
-
-        for item in existing:
-            if item.payload == payload.payload:
-                return _transfer_request_out(item)
-
-        transfer = TransferRequest(
-            passenger_id=passenger.id,
-            request_type=TransferRequestType[payload.request_type],
-            status=TransferRequestStatus.PENDING,
-            payload=payload.payload,
-            notes=payload.notes,
-        )
-
-        db.add(transfer)
-        db.flush()
-        db.refresh(transfer)
-
-        return _transfer_request_out(transfer)
         
 class MonthlyPlanPurchaseIn(BaseModel):
     month: date
