@@ -180,7 +180,7 @@ def get_bus_tracking(
                 "windows": _tracking_windows_label(),
             }
 
-                target_pickup = _current_operational_pickup()
+        target_pickup = _current_operational_pickup()
         if not target_pickup:
             return {
                 "available": False,
@@ -190,24 +190,14 @@ def get_bus_tracking(
                 "server_time": now_local().isoformat(),
             }
 
-                target_pickup = _current_operational_pickup()
-                if not target_pickup:
-                    return {
-                        "available": False,
-                        "reason": "outside_window",
-                        "message": "El seguimiento del bus solo está disponible en las ventanas horarias configuradas.",
-                        "windows": _tracking_windows_label(),
-                        "server_time": now_local().isoformat(),
-                    }
-
-                pickup_coords = _pickup_coords(target_pickup)
-                if not pickup_coords:
-                    return {
-                        "available": False,
-                        "reason": "pickup_not_configured",
-                        "message": "El punto operativo del seguimiento no tiene coordenadas configuradas.",
-                        "windows": _tracking_windows_label(),
-                    }
+        pickup_coords = _pickup_coords(target_pickup)
+        if not pickup_coords:
+            return {
+                "available": False,
+                "reason": "pickup_not_configured",
+                "message": "El punto operativo del seguimiento no tiene coordenadas configuradas.",
+                "windows": _tracking_windows_label(),
+            }
 
         latest = _latest_vehicle_location(db, passenger.service_id)
         if not latest:
