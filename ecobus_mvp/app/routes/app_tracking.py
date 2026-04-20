@@ -52,6 +52,26 @@ def _pickup_coords(pickup_point: PickupPoint | None) -> tuple[float, float] | No
     return None
 
 
+def _current_operational_pickup() -> PickupPoint | None:
+    now_t = now_local().timetz().replace(tzinfo=None)
+
+    if (
+        settings.tracking_window_morning_start
+        <= now_t
+        <= settings.tracking_window_morning_end
+    ):
+        return PickupPoint.LA_COLONIA
+
+    if (
+        settings.tracking_window_evening_start
+        <= now_t
+        <= settings.tracking_window_evening_end
+    ):
+        return PickupPoint.LA_MONEDA
+
+    return None
+
+
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     r = 6371.0
 
@@ -160,14 +180,34 @@ def get_bus_tracking(
                 "windows": _tracking_windows_label(),
             }
 
-        pickup_coords = _pickup_coords(passenger.pickup_point_default)
-        if not pickup_coords:
+                target_pickup = _current_operational_pickup()
+        if not target_pickup:
             return {
                 "available": False,
-                "reason": "pickup_not_configured",
-                "message": "El punto de subida no tiene coordenadas configuradas.",
+                "reason": "outside_window",
+                "message": "El seguimiento del bus solo está disponible en las ventanas horarias configuradas.",
                 "windows": _tracking_windows_label(),
+                "server_time": now_local().isoformat(),
             }
+
+                target_pickup = _current_operational_pickup()
+                if not target_pickup:
+                    return {
+                        "available": False,
+                        "reason": "outside_window",
+                        "message": "El seguimiento del bus solo está disponible en las ventanas horarias configuradas.",
+                        "windows": _tracking_windows_label(),
+                        "server_time": now_local().isoformat(),
+                    }
+
+                pickup_coords = _pickup_coords(target_pickup)
+                if not pickup_coords:
+                    return {
+                        "available": False,
+                        "reason": "pickup_not_configured",
+                        "message": "El punto operativo del seguimiento no tiene coordenadas configuradas.",
+                        "windows": _tracking_windows_label(),
+                    }
 
         latest = _latest_vehicle_location(db, passenger.service_id)
         if not latest:
@@ -217,7 +257,7 @@ def get_bus_tracking(
                 "recorded_at": latest.recorded_at,
             },
             "pickup": {
-                "name": passenger.pickup_point_default.value if passenger.pickup_point_default else None,
+                "name": target_pickup.value,
                 "lat": pickup_lat,
                 "lng": pickup_lng,
             },
