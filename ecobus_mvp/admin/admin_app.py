@@ -366,8 +366,6 @@ tabs = st.tabs([
     "Planes mensuales",
     "Pase diario",
     "Finanzas",
-    "Transferencias pendientes",
-    "Historial transferencias",
     "Historial Webpay",
 ])
 
@@ -1825,12 +1823,6 @@ with tabs[3]:
 
 with tabs[4]:
     render_finanzas()
-
-with tabs[5]:
-    render_transferencias_pendientes()
-
-with tabs[6]:
-    render_historial_transferencias()
 
 with tabs[7]:
     render_historial_webpay()
