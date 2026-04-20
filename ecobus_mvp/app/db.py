@@ -241,23 +241,6 @@ def _backfill_service_ids() -> None:
     ]
     _exec_autocommit(stmts, "_backfill_service_ids failed")
 
-def _ensure_vehicle_locations_schema() -> None:
-    stmts = [
-        """
-        CREATE TABLE IF NOT EXISTS vehicle_locations (
-            id SERIAL PRIMARY KEY,
-            service_id integer NOT NULL REFERENCES services(id),
-            lat DOUBLE PRECISION NOT NULL,
-            lng DOUBLE PRECISION NOT NULL,
-            source VARCHAR(50) NULL,
-            recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            is_active BOOLEAN NOT NULL DEFAULT TRUE
-        );
-        """,
-        "CREATE INDEX IF NOT EXISTS ix_vehicle_locations_service_id ON vehicle_locations(service_id);",
-        "CREATE INDEX IF NOT EXISTS ix_vehicle_locations_recorded_at ON vehicle_locations(recorded_at);",
-    ]
-    _exec_autocommit(stmts, "_ensure_vehicle_locations_schema failed")
 
 def _migrate_old_subscription_plan_values() -> None:
     """
