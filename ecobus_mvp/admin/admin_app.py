@@ -1824,7 +1824,7 @@ with tabs[3]:
 with tabs[4]:
     render_finanzas()
 
-with tabs[7]:
+with tabs[5]:
     render_historial_webpay()
 
 st.markdown("---")
