@@ -87,13 +87,10 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return r * c
 
 
-def _latest_vehicle_location(db, service_id: int) -> VehicleLocation | None:
+def _latest_vehicle_location(db) -> VehicleLocation | None:
     return (
         db.query(VehicleLocation)
-        .filter(
-            VehicleLocation.service_id == service_id,
-            VehicleLocation.is_active == True,
-        )
+        .filter(VehicleLocation.is_active == True)
         .order_by(desc(VehicleLocation.recorded_at), desc(VehicleLocation.id))
         .first()
     )
@@ -172,14 +169,6 @@ def get_bus_tracking(
                 "server_time": now_local().isoformat(),
             }
 
-        if not passenger.service_id:
-            return {
-                "available": False,
-                "reason": "no_service",
-                "message": "Tu usuario no tiene un servicio asignado.",
-                "windows": _tracking_windows_label(),
-            }
-
         target_pickup = _current_operational_pickup()
         if not target_pickup:
             return {
@@ -199,7 +188,7 @@ def get_bus_tracking(
                 "windows": _tracking_windows_label(),
             }
 
-        latest = _latest_vehicle_location(db, passenger.service_id)
+        latest = _latest_vehicle_location(db)
         if not latest:
             return {
                 "available": False,
